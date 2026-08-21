@@ -55,6 +55,14 @@ def _curated_ids() -> list[str]:
 class ORPickerProfile(ProviderProfile):
     """OpenRouter transport, curated model list from the picker JSON."""
 
+    def __getattribute__(self, name: str):
+        # Never pin fallback_models at import — that list is what the
+        # composer picker merges against, so a snapshot blocks removes.
+        if name == "fallback_models":
+            ids = _curated_ids()
+            return tuple(ids) if ids else ()
+        return super().__getattribute__(name)
+
     def fetch_models(
         self,
         *,
@@ -75,7 +83,7 @@ or_picker = ORPickerProfile(
     signup_url="https://openrouter.ai/keys",
     base_url="https://openrouter.ai/api/v1",
     auth_type="api_key",
-    fallback_models=tuple(_curated_ids() or ("xiaomi/mimo-v2.5",)),
+    fallback_models=(),
 )
 
 register_provider(or_picker)

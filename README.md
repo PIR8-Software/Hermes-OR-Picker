@@ -6,7 +6,7 @@ Desktop plugin + separate Hermes provider for Roy's curated OpenRouter models.
 
 - **OpenRouter** in `hermes model` is the **default auto-populated** Hermes catalog again (42 curated models, refreshes from the docs manifest).
 - **OR Picker** is a **separate provider**. It only lists models you select in the desktop plugin.
-- Selecting a model in the plugin writes `openrouter-supplemental-models.json`. That file is what `or-picker` shows.
+- Selecting a model in the plugin writes `openrouter-supplemental-models.json`. That file is what `or-picker` shows. Check/uncheck also busts `provider_models_cache.json` and invalidates the desktop `model-options` query so the composer list updates without restarting Hermes.exe.
 
 The old `model_catalog.providers.openrouter.url` override (which **replaced** the whole OpenRouter list) is removed.
 

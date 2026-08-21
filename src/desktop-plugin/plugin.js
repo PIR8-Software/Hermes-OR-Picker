@@ -10,6 +10,7 @@ import {
   ROUTES_AREA, SIDEBAR_NAV_AREA, PALETTE_AREA,
   Checkbox,
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  queryClient,
 } from '@hermes/plugin-sdk'
 import { jsx, jsxs } from 'react/jsx-runtime'
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -21,6 +22,12 @@ async function api(ctx, method, path, body) {
   const opts = { method, timeoutMs: 30000 }
   if (body !== undefined) opts.body = body
   return ctx.rest(path, opts)
+}
+
+function refreshComposerPicker() {
+  try {
+    queryClient.invalidateQueries({ queryKey: ['model-options'] })
+  } catch {}
 }
 
 function UiSelect({ value, onChange, options, className }) {
@@ -320,10 +327,12 @@ function PickerPage({ ctx }) {
         const data = await api(ctx, 'POST', '/remove', { id })
         if (data && data.error) { setError(data.error); return }
         setCuratedIds(prev => { const next = new Set(prev); next.delete(id); return next })
+        refreshComposerPicker()
       } else {
         const data = await api(ctx, 'POST', '/models', { id, description: name || id })
         if (data && data.error) { setError(data.error); return }
         setCuratedIds(prev => new Set(prev).add(id))
+        refreshComposerPicker()
       }
     } catch (e) { setError(String(e)) }
   }, [ctx, curatedIds])

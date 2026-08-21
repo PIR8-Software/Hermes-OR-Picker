@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-08-21T07:17:37.148508+00:00",
+  "updated_at": "2026-08-21T07:54:05.609139+00:00",
   "metadata": {
     "source": "Roy's supplemental OpenRouter picker models"
   },
@@ -93,6 +93,38 @@
         {
           "id": "xiaomi/mimo-v2.5-pro",
           "description": "Xiaomi: MiMo-V2.5-Pro"
+        },
+        {
+          "id": "deepseek/deepseek-v4-pro-0813",
+          "description": "DeepSeek: DeepSeek V4 Pro 0813"
+        },
+        {
+          "id": "aion-labs/aion-3.0-mini",
+          "description": "AionLabs: Aion-3.0-Mini"
+        },
+        {
+          "id": "deepseek/deepseek-v4-pro",
+          "description": "DeepSeek: DeepSeek V4 Pro 0423"
+        },
+        {
+          "id": "deepseek/deepseek-v4-flash",
+          "description": "DeepSeek: DeepSeek V4 Flash 0423"
+        },
+        {
+          "id": "deepseek/deepseek-v4-flash-0731",
+          "description": "DeepSeek: DeepSeek V4 Flash 0731"
+        },
+        {
+          "id": "~deepseek/deepseek-v4-flash-latest",
+          "description": "DeepSeek V4 Flash Latest"
+        },
+        {
+          "id": "z-ai/glm-5.3",
+          "description": "Z.ai: GLM 5.3"
+        },
+        {
+          "id": "~z-ai/glm-latest",
+          "description": "Z.ai: GLM Latest"
         }
       ]
     }

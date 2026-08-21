@@ -53,12 +53,37 @@ def _read_models() -> dict[str, Any]:
         return _empty_manifest()
 
 
+def _invalidate_or_picker_cache() -> None:
+    """Composer picker caches or-picker ids for 1h in provider_models_cache.json."""
+    try:
+        from hermes_cli.models import clear_provider_models_cache
+        clear_provider_models_cache("or-picker")
+        return
+    except Exception:
+        pass
+    try:
+        from hermes_constants import get_hermes_home
+        path = get_hermes_home() / "provider_models_cache.json"
+    except Exception:
+        path = Path.home() / ".hermes" / "provider_models_cache.json"
+    if not path.exists():
+        return
+    try:
+        cache = json.loads(path.read_text())
+        if isinstance(cache, dict) and "or-picker" in cache:
+            del cache["or-picker"]
+            path.write_text(json.dumps(cache))
+    except Exception:
+        pass
+
+
 def _write_models(data: dict[str, Any]) -> None:
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
     target = MODELS_PATH.resolve() if MODELS_PATH.exists() else MODELS_PATH
     tmp = target.with_name(target.name + ".tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     tmp.replace(target)
+    _invalidate_or_picker_cache()
 
 
 def _as_dict(body: Any) -> dict[str, Any]:
@@ -71,7 +96,8 @@ def _as_dict(body: Any) -> dict[str, Any]:
 
 
 def _valid_id(mid: str) -> bool:
-    return bool(re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.:/-]+$", mid))
+    # OpenRouter "latest" aliases are ids like ~anthropic/claude-opus-latest
+    return bool(re.match(r"^~?[A-Za-z0-9_.-]+/[A-Za-z0-9_.:/-]+$", mid))
 
 
 async def _json_body(request: Request) -> dict[str, Any]:
