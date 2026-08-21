@@ -123,10 +123,10 @@ def _empty_manifest() -> dict[str, Any]:
     return {
         "version": 1,
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "metadata": {"source": "Roy's supplemental OpenRouter picker models"},
+        "metadata": {"source": "Supplemental OpenRouter picker models"},
         "providers": {
             "openrouter": {
-                "metadata": {"display_name": "Roy supplemental OpenRouter models"},
+                "metadata": {"display_name": "Supplemental OpenRouter models"},
                 "models": [],
             }
         },

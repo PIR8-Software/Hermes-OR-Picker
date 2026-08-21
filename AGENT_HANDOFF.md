@@ -1,8 +1,6 @@
 # Agent Handoff — OpenRouter Picker
 
-**Date:** 2026-08-21
-**Session:** @session:default/20260821_022219_6ca62b
-**Status:** Working. Sidebar catalog editor + composer provider **OR Picker** (separate from stock OpenRouter). Check/uncheck updates the composer list without restarting Hermes.exe.
+**Status:** Working. Sidebar catalog editor + composer provider **OR Picker** (separate from stock OpenRouter). Check/uncheck updates the composer list without restarting the desktop app.
 
 Do not restart the Hermes gateway from inside a live gateway session.
 
@@ -13,32 +11,27 @@ Do not restart the Hermes gateway from inside a live gateway session.
 Desktop plugin to browse the full OpenRouter catalog, check models into a curated list, and expose that list as a **separate** Hermes provider.
 
 - **OpenRouter** = official auto catalog (~40 models).
-- **OR Picker** = Roy’s checked list only.
+- **OR Picker** = the user's checked list only.
 
 Do **not** set `model_catalog.providers.openrouter.url` — that **replaces** the official OpenRouter tab.
 
 ---
 
-## Live paths
+## Install paths
 
 | What | Path |
 |------|------|
-| Git | `/home/roy/projects/openrouter-picker` (`main`) |
+| Git | this repo (`main`) |
 | Curated JSON | `openrouter-supplemental-models.json` |
-| Symlink | `~/.hermes/openrouter-supplemental-models.json` → project file |
-| Desktop UI (VM) | `~/.hermes/desktop-plugins/openrouter-picker/plugin.js` |
-| Desktop UI (Surface) | `C:\Users\<user>\AppData\Local\hermes\desktop-plugins\openrouter-picker\plugin.js` |
-| Dashboard API | `~/.hermes/plugins/openrouter-picker/` |
-| Provider | `~/.hermes/plugins/model-providers/or-picker/` |
+| JSON (live) | `$HERMES_HOME/openrouter-supplemental-models.json` (symlink or copy) |
+| Desktop UI | `$HERMES_HOME/desktop-plugins/openrouter-picker/plugin.js` |
+| Desktop UI (Windows) | `%LOCALAPPDATA%\hermes\desktop-plugins\openrouter-picker\plugin.js` |
+| Dashboard API | `$HERMES_HOME/plugins/openrouter-picker/` |
+| Provider | `$HERMES_HOME/plugins/model-providers/or-picker/` |
 
-Roy’s desktop is **Windows desktop** (`<desktop-host>`). After editing `plugin.js`, copy to Surface:
+`$HERMES_HOME` is `~/.hermes` unless a profile is active.
 
-```bash
-scp plugin.js <user>@<desktop-host>:C:/Users/<user>/Downloads/openrouter-picker-plugin.js
-ssh <user>@<desktop-host> 'powershell -NoProfile -Command "Copy-Item -Force C:\Users\<user>\Downloads\openrouter-picker-plugin.js C:\Users\<user>\AppData\Local\hermes\desktop-plugins\openrouter-picker\plugin.js"'
-```
-
-SSH: `ssh <user>@<desktop-host>`
+If the desktop app and the gateway run on different machines, copy `plugin.js` to the desktop machine. The API and provider stay on the gateway host.
 
 ---
 
@@ -71,13 +64,13 @@ Desktop plugin:
 
 ---
 
-## What works (verified with Roy)
+## What works
 
 - Sidebar **OR Picker** loads catalog, filters, details.
 - Check/uncheck writes JSON.
 - `~provider/...-latest` aliases are valid IDs.
 - Composer shows **OpenRouter** (stock) and **OR Picker** (curated).
-- Check/uncheck refreshes the composer list **without** quitting Hermes.exe (disk cache bust + React Query invalidate).
+- Check/uncheck refreshes the composer list **without** quitting the desktop app (disk cache bust + React Query invalidate).
 
 ---
 
@@ -86,25 +79,23 @@ Desktop plugin:
 - **Two enables:** `plugins.enabled` is the Python dashboard plugin. Desktop enable is `defaultEnabled` + Electron localStorage. Gateway list ≠ sidebar.
 - **`ctx.rest` body must be an object**, not `JSON.stringify` (double-encode 422).
 - **`~` IDs:** OpenRouter latest aliases. `_valid_id` allows optional leading `~`.
-- **Composer cache:** `~/.hermes/provider_models_cache.json` key `or-picker`, 1h TTL / 7d SWR. Writes must `clear_provider_models_cache("or-picker")`. Snapshotting `fallback_models` at import blocks removes — `ORPickerProfile.__getattribute__('fallback_models')` reads the JSON live.
+- **Composer cache:** `$HERMES_HOME/provider_models_cache.json` key `or-picker`, 1h TTL / 7d SWR. Writes must `clear_provider_models_cache("or-picker")`. Snapshotting `fallback_models` at import blocks removes — `ORPickerProfile.__getattribute__('fallback_models')` reads the JSON live.
 - **Write through the symlink:** `tmp.replace(MODELS_PATH.resolve())`. `rename` onto the symlink path turns it into a regular file.
-- **Python API changes** need `hermes-dashboard.service` remount. Do not bounce the gateway from this chat. Dashboard restart blinks desktop sessions.
-- **Surface vs VM:** UI lives on Surface; API lives on the VM dashboard `:9119`.
-- Relays are unrelated. Do not kill `hermes relay` to debug the picker. `hermes-relay` systemd units were disabled this session because core `hermes relay` is invalid unless that plugin is enabled. Restore only from a non-gateway shell.
+- **Python API changes** need a dashboard remount (`systemctl --user restart hermes-dashboard.service` from a **separate** shell, or equivalent). Do not bounce the gateway from a live gateway chat. Dashboard restart blinks desktop sessions.
+- Relays are unrelated. Do not kill `hermes relay` to debug the picker.
 
 ---
 
 ## Deploy checklist after code change
 
-1. Copy `src/` into the live `~/.hermes/` trees (desktop-plugin, dashboard plugin, model-provider).
-2. `scp` `plugin.js` to Surface (path above).
-3. Dashboard remount only if `plugin_api.py` or `or-picker/__init__.py` changed: `systemctl --user restart hermes-dashboard.service` from a **separate** shell.
-4. Desktop JS: file-watch or Ctrl+K → Reload desktop plugins.
+1. Copy `src/` into the live `$HERMES_HOME/` trees (desktop-plugin, dashboard plugin, model-provider), or re-run `./install.sh`.
+2. If desktop is on another machine, copy `plugin.js` there.
+3. Dashboard remount only if `plugin_api.py` or `or-picker/__init__.py` changed.
+4. Desktop JS: file-watch or Ctrl/Cmd+K → Reload desktop plugins.
 
 ---
 
 ## Next (optional)
 
 - Tighten ID regex if you care about `../` style false positives (catalog IDs only come from OpenRouter).
-- Restore hermes-relay from a non-gateway shell if mobile pairing is needed.
-- Do not merge curated list into stock OpenRouter unless Roy asks.
+- Do not merge the curated list into stock OpenRouter unless the user asks.

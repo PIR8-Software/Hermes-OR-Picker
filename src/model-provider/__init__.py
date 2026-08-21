@@ -1,4 +1,4 @@
-"""OR Picker — separate OpenRouter provider showing only Roy's curated models.
+"""OR Picker — separate OpenRouter provider showing only the curated picker list.
 
 Uses the same OpenRouter API key and endpoint as the built-in OpenRouter
 provider. The live catalog is the supplemental JSON managed by the
@@ -79,7 +79,7 @@ or_picker = ORPickerProfile(
     aliases=("roy-openrouter", "orpicker"),
     env_vars=("OPENROUTER_API_KEY",),
     display_name="OR Picker",
-    description="Roy's curated OpenRouter list (separate from default OpenRouter)",
+    description="Curated OpenRouter list (separate from default OpenRouter)",
     signup_url="https://openrouter.ai/keys",
     base_url="https://openrouter.ai/api/v1",
     auth_type="api_key",

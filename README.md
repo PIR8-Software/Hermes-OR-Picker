@@ -1,37 +1,58 @@
-# OpenRouter Picker
+# Hermes OR Picker
 
-Desktop plugin + separate Hermes provider for Roy's curated OpenRouter models.
+A Hermes Agent plugin: browse the full OpenRouter catalog, check the models you want, and use them as a **separate** composer provider named **OR Picker**.
 
-## Behavior
+Stock **OpenRouter** stays the official auto catalog. OR Picker is only your checked list.
 
-- **OpenRouter** in `hermes model` is the **default auto-populated** Hermes catalog again (42 curated models, refreshes from the docs manifest).
-- **OR Picker** is a **separate provider**. It only lists models you select in the desktop plugin.
-- Selecting a model in the plugin writes `openrouter-supplemental-models.json`. That file is what `or-picker` shows. Check/uncheck also busts `provider_models_cache.json` and invalidates the desktop `model-options` query so the composer list updates without restarting Hermes.exe.
+Do **not** set `model_catalog.providers.openrouter.url` — that replaces the official OpenRouter tab.
 
-The old `model_catalog.providers.openrouter.url` override (which **replaced** the whole OpenRouter list) is removed.
+## Requirements
 
-## Architecture
+- [Hermes Agent](https://hermes-agent.nousresearch.com/docs/) with the desktop app
+- An OpenRouter key already configured in Hermes (`OPENROUTER_API_KEY`)
 
-```
-Desktop UI  ~/.hermes/desktop-plugins/openrouter-picker/plugin.js
-        ↓  /api/plugins/openrouter-picker/
-Backend     ~/.hermes/plugins/openrouter-picker/dashboard/plugin_api.py
-        ↓ writes
-JSON        ~/projects/openrouter-picker/openrouter-supplemental-models.json
-            (symlinked to ~/.hermes/openrouter-supplemental-models.json)
-        ↓ read by
-Provider    ~/.hermes/plugins/model-providers/or-picker/
-            name: or-picker
-            display: OR Picker
-            base_url: https://openrouter.ai/api/v1
-            auth: OPENROUTER_API_KEY
-        ↓
-hermes model picker → provider "OR Picker" (separate from OpenRouter)
+## Install
+
+```bash
+git clone https://github.com/croycrabtree/Hermes-OR-Picker.git
+cd Hermes-OR-Picker
+./install.sh
+hermes plugins enable openrouter-picker --no-allow-tool-override
 ```
 
-## Switch to a curated model
+Then in the desktop app: **Ctrl/Cmd+K → Reload desktop plugins**.
 
-In the model picker choose provider **OR Picker**, then a selected model.
+`install.sh` copies:
+
+| Source | Destination |
+|--------|-------------|
+| `src/desktop-plugin/plugin.js` | `$HERMES_HOME/desktop-plugins/openrouter-picker/` |
+| `src/backend-api/` | `$HERMES_HOME/plugins/openrouter-picker/` (+ `dashboard/`) |
+| `src/model-provider/` | `$HERMES_HOME/plugins/model-providers/or-picker/` |
+| `openrouter-supplemental-models.json` | `$HERMES_HOME/openrouter-supplemental-models.json` (skipped if already present) |
+
+`$HERMES_HOME` defaults to `~/.hermes`.
+
+### Split desktop / gateway
+
+If Hermes Desktop runs on a different machine than the gateway:
+
+1. Run `install.sh` on the **gateway** host (API + provider + JSON).
+2. Copy `src/desktop-plugin/plugin.js` to the **desktop** machine:
+
+```text
+%LOCALAPPDATA%\hermes\desktop-plugins\openrouter-picker\plugin.js
+```
+
+(or `$HERMES_HOME/desktop-plugins/openrouter-picker/plugin.js` on Linux/macOS).
+
+Python API changes need a dashboard remount on the gateway host. Do not restart the gateway from inside a live gateway chat.
+
+## Use
+
+1. Open the sidebar **OR Picker** page (or command palette → “Open OpenRouter Picker”).
+2. Check models. Uncheck to remove them.
+3. In the composer model picker, choose provider **OR Picker**.
 
 Or:
 
@@ -41,19 +62,43 @@ hermes config set model.default xiaomi/mimo-v2.5
 hermes config set model.base_url https://openrouter.ai/api/v1
 ```
 
-New sessions pick this up. Do not restart the gateway from inside a live gateway chat.
+New sessions pick this up.
+
+## Architecture
+
+```
+Desktop UI  $HERMES_HOME/desktop-plugins/openrouter-picker/plugin.js
+        ↓  /api/plugins/openrouter-picker/
+Backend     $HERMES_HOME/plugins/openrouter-picker/dashboard/plugin_api.py
+        ↓ writes
+JSON        $HERMES_HOME/openrouter-supplemental-models.json
+        ↓ read by
+Provider    $HERMES_HOME/plugins/model-providers/or-picker/
+            name: or-picker
+            display: OR Picker
+            base_url: https://openrouter.ai/api/v1
+            auth: OPENROUTER_API_KEY
+        ↓
+hermes model picker → provider "OR Picker" (separate from OpenRouter)
+```
 
 ## Files
 
 | Path | Role |
 |------|------|
-| `openrouter-supplemental-models.json` | Curated list |
+| `openrouter-supplemental-models.json` | Starter curated list |
 | `src/desktop-plugin/plugin.js` | Desktop UI |
 | `src/backend-api/` | Dashboard FastAPI plugin |
 | `src/model-provider/` | Hermes provider `or-picker` |
+| `install.sh` | Copy into `$HERMES_HOME` |
+| `AGENT_HANDOFF.md` | Agent pitfalls and deploy notes |
 
 ## Tests
 
 ```bash
 uv run --with pytest pytest -q
 ```
+
+## License
+
+MIT
