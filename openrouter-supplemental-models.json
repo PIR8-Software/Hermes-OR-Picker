@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "updated_at": "2026-08-21T02:31:30Z",
+  "metadata": {
+    "source": "Roy's supplemental OpenRouter picker models"
+  },
+  "providers": {
+    "openrouter": {
+      "metadata": {
+        "display_name": "Roy supplemental OpenRouter models"
+      },
+      "models": [
+        {
+          "id": "xiaomi/mimo-v2.5",
+          "description": "MiMo V2.5 — low-cost agentic coder, 1.05M ctx, $0.14/$0.28/M"
+        },
+        {
+          "id": "qwen/qwen3-coder",
+          "description": "Qwen3 Coder — coding specialist, 262K ctx, $0.30/$1.00/M"
+        },
+        {
+          "id": "nvidia/nemotron-3-nano-30b-a3b:free",
+          "description": "Nemotron 3 Nano — small free MoE, 256K ctx, fast"
+        },
+        {
+          "id": "google/gemma-4-31b-it:free",
+          "description": "Gemma 4 31B — free dense, 262K ctx, multimodal, Apache 2.0"
+        },
+        {
+          "id": "moonshotai/kimi-k2.6",
+          "description": "Kimi K2.6 — agentic coder, 47.6% CursorBench, can be unstable"
+        },
+
+        {
+          "id": "cohere/north-mini-code:free",
+          "description": "North Mini Code — free coder, 30B/3B active, 256K ctx"
+        },
+        {
+          "id": "openai/gpt-oss-20b:free",
+          "description": "GPT-OSS 20B — free OpenAI open-weight, 131K ctx"
+        },
+        {
+          "id": "minimax/minimax-m1",
+          "description": "MiniMax M1 — 456B/45.9B active, 1M ctx, $0.40/$2.20/M"
+        },
+        {
+          "id": "poolside/laguna-s-2.1:free",
+          "description": "Laguna S 2.1 — 118B/8B coding agent, 70% Terminal-Bench, free preview"
+        },
+
+        {
+          "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+          "description": "Nemotron Nano Omni — free multimodal, text/image/video/audio"
+        }
+      ]
+    }
+  }
+}
