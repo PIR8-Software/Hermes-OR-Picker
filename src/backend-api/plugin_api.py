@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from fastapi import APIRouter
+    from fastapi import APIRouter, Request
 except Exception:
     class APIRouter:
         def get(self, *_a, **_kw):
@@ -27,6 +27,8 @@ except Exception:
             return lambda fn: fn
         def put(self, *_a, **_kw):
             return lambda fn: fn
+    class Request:  # pragma: no cover
+        pass
 
 router = APIRouter()
 
@@ -53,9 +55,42 @@ def _read_models() -> dict[str, Any]:
 
 def _write_models(data: dict[str, Any]) -> None:
     data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    tmp = MODELS_PATH.with_suffix(".tmp")
+    target = MODELS_PATH.resolve() if MODELS_PATH.exists() else MODELS_PATH
+    tmp = target.with_name(target.name + ".tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-    tmp.rename(MODELS_PATH)
+    tmp.replace(target)
+
+
+def _as_dict(body: Any) -> dict[str, Any]:
+    if isinstance(body, str):
+        try:
+            body = json.loads(body)
+        except json.JSONDecodeError:
+            return {}
+    return body if isinstance(body, dict) else {}
+
+
+def _valid_id(mid: str) -> bool:
+    return bool(re.match(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.:/-]+$", mid))
+
+
+async def _json_body(request: Request) -> dict[str, Any]:
+    try:
+        raw = await request.json()
+    except Exception:
+        return {}
+    return _as_dict(raw)
+
+
+def _remove_id(mid: str) -> dict[str, Any]:
+    data = _read_models()
+    models = _get_models_list(data)
+    before = len(models)
+    models[:] = [m for m in models if m["id"] != mid]
+    if len(models) == before:
+        return {"error": f"Model {mid} not found"}
+    _write_models(data)
+    return {"ok": True, "removed": mid, "count": len(models)}
 
 
 def _empty_manifest() -> dict[str, Any]:
@@ -267,15 +302,15 @@ def get_catalog(
 
 # ── POST /models ─────────────────────────────────────────────────────
 @router.post("/models")
-def add_model(body: dict | None = None):
-    if not body:
-        return {"error": "body required"}
+async def add_model(request: Request):
+    body = await _json_body(request)
     mid = (body.get("id") or "").strip()
     desc = (body.get("description") or "").strip()
     if not mid:
         return {"error": "id required"}
-
-    if not re.match(r"^[a-z0-9_-]+/[a-z0-9._:-]+$", mid):
+    if body.get("remove"):
+        return _remove_id(mid)
+    if not _valid_id(mid):
         return {"error": f"Invalid model ID format: {mid}"}
 
     data = _read_models()
@@ -289,8 +324,18 @@ def add_model(body: dict | None = None):
     return {"ok": True, "added": mid, "count": len(models)}
 
 
+# ── POST /remove ─────────────────────────────────────────────────────
+@router.post("/remove")
+async def remove_model(request: Request):
+    body = await _json_body(request)
+    mid = (body.get("id") or "").strip()
+    if not mid:
+        return {"error": "id required"}
+    return _remove_id(mid)
+
+
 # ── PUT /models/{model_id} ──────────────────────────────────────────
-@router.put("/models/{model_id}")
+@router.put("/models/{model_id:path}")
 def update_model(model_id: str, body: dict | None = None):
     if not body:
         return {"error": "body required"}
@@ -307,16 +352,9 @@ def update_model(model_id: str, body: dict | None = None):
 
 
 # ── DELETE /models/{model_id} ───────────────────────────────────────
-@router.delete("/models/{model_id}")
+@router.delete("/models/{model_id:path}")
 def delete_model(model_id: str):
-    data = _read_models()
-    models = _get_models_list(data)
-    before = len(models)
-    models[:] = [m for m in models if m["id"] != model_id]
-    if len(models) == before:
-        return {"error": f"Model {model_id} not found"}
-    _write_models(data)
-    return {"ok": True, "removed": model_id, "count": len(models)}
+    return _remove_id(model_id)
 
 
 # ── POST /reorder ───────────────────────────────────────────────────

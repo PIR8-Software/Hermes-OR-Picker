@@ -1,0 +1,5 @@
+name: or-picker
+kind: model-provider
+version: 1.0.0
+description: Roy's curated OpenRouter models — separate from the default OpenRouter catalog
+author: Roy, Hermes Agent

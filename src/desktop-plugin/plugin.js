@@ -6,8 +6,10 @@
  */
 
 import {
-  cn, host, Tip,
+  cn, host,
   ROUTES_AREA, SIDEBAR_NAV_AREA, PALETTE_AREA,
+  Checkbox,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@hermes/plugin-sdk'
 import { jsx, jsxs } from 'react/jsx-runtime'
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -15,11 +17,26 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 const ID = 'openrouter-picker'
 const PAGE = '/openrouter-picker'
 
-async function api(method, path, body) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } }
-  if (body !== undefined) opts.body = JSON.stringify(body)
-  const resp = await fetch(`/api/plugins/openrouter-picker${path}`, opts)
-  return resp.json()
+async function api(ctx, method, path, body) {
+  const opts = { method, timeoutMs: 30000 }
+  if (body !== undefined) opts.body = body
+  return ctx.rest(path, opts)
+}
+
+function UiSelect({ value, onChange, options, className }) {
+  return jsxs(Select, {
+    value,
+    onValueChange: onChange,
+    children: [
+      jsx(SelectTrigger, {
+        className: cn('h-8 min-w-0 flex-1 text-xs', className),
+        children: jsx(SelectValue, {})
+      }),
+      jsx(SelectContent, {
+        children: options.map(o => jsx(SelectItem, { value: o.value, children: o.label }, o.value))
+      })
+    ]
+  })
 }
 
 const SORT_OPTIONS = [
@@ -33,6 +50,24 @@ const SORT_OPTIONS = [
   { value: 'intelligence-high-to-low', label: 'Intelligence ↓' },
   { value: 'coding-high-to-low', label: 'Coding ↓' },
   { value: 'agentic-high-to-low', label: 'Agentic ↓' },
+]
+
+const MODALITY_OPTIONS = [
+  { value: 'all', label: 'All modalities' },
+  { value: 'text', label: 'Text' },
+  { value: 'image', label: 'Image' },
+  { value: 'text,image', label: 'Text + Image' },
+  { value: 'text,audio', label: 'Text + Audio' },
+]
+
+const CONTEXT_OPTIONS = [
+  { value: '0', label: 'Any context' },
+  { value: '8192', label: '8K+' },
+  { value: '32768', label: '32K+' },
+  { value: '131072', label: '128K+' },
+  { value: '262144', label: '256K+' },
+  { value: '524288', label: '512K+' },
+  { value: '1048576', label: '1M+' },
 ]
 
 function formatCtx(ctx) {
@@ -52,7 +87,7 @@ function formatPrice(p) {
 function Pill({ children, color }) {
   return jsx('span', {
     className: cn(
-      'text-[9px] px-1 py-0.5 rounded font-medium',
+      'text-[10px] px-1.5 py-0.5 rounded font-medium',
       color === 'green' && 'bg-green-500/15 text-green-400',
       color === 'blue' && 'bg-blue-500/15 text-blue-400',
       color === 'yellow' && 'bg-yellow-500/15 text-yellow-400',
@@ -71,12 +106,12 @@ function ScoreBar({ value, max = 100, label }) {
   return jsxs('div', {
     className: 'flex items-center gap-1',
     children: [
-      jsx('span', { className: 'text-[9px] text-(--ui-text-quaternary) w-7 shrink-0', children: label }),
+      jsx('span', { className: 'text-[10px] text-(--ui-text-quaternary) w-8 shrink-0', children: label }),
       jsx('div', {
         className: 'flex-1 h-1 rounded bg-(--chrome-background-inset) overflow-hidden',
         children: jsx('div', { className: `h-full rounded ${color}`, style: { width: `${pct}%` } })
       }),
-      jsx('span', { className: 'text-[9px] text-(--ui-text-tertiary) w-6 text-right shrink-0', children: String(value) })
+      jsx('span', { className: 'text-[10px] text-(--ui-text-tertiary) w-6 text-right shrink-0', children: String(value) })
     ]
   })
 }
@@ -92,7 +127,7 @@ function ModelDetails({ m }) {
   const ws = m.web_search_price
 
   return jsxs('div', {
-    className: 'px-2 py-1.5 text-[10px] space-y-1 border-t border-(--ui-stroke-secondary)',
+    className: 'px-2 py-1.5 text-xs space-y-1 border-t border-(--ui-stroke-secondary)',
     children: [
       m.description && jsx('div', {
         className: 'text-(--ui-text-tertiary) leading-relaxed',
@@ -156,7 +191,7 @@ function ModelDetails({ m }) {
         ]
       }),
       m.supported_parameters && m.supported_parameters.length > 0 && jsx('div', {
-        className: 'text-[9px] text-(--ui-text-quaternary)',
+        className: 'text-[11px] text-(--ui-text-quaternary)',
         children: `Params: ${m.supported_parameters.join(', ')}`
       }),
     ]
@@ -179,14 +214,11 @@ function CatalogRow({ model, isSelected, onToggle }) {
         className: 'flex items-center gap-2 px-2 py-1.5 cursor-pointer',
         onClick: () => onToggle(m.id, m.name),
         children: [
-          jsx('div', {
-            className: cn(
-              'w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors text-xs',
-              isSelected
-                ? 'bg-(--ui-accent) border-(--ui-accent) text-white'
-                : 'border-(--ui-stroke-secondary) text-transparent'
-            ),
-            children: isSelected ? '✓' : ''
+          jsx(Checkbox, {
+            checked: isSelected,
+            className: 'shrink-0',
+            onClick: (e) => e.stopPropagation(),
+            onCheckedChange: () => onToggle(m.id, m.name),
           }),
           jsxs('div', {
             className: 'flex-1 min-w-0',
@@ -195,7 +227,7 @@ function CatalogRow({ model, isSelected, onToggle }) {
                 className: 'flex items-center gap-1.5',
                 children: [
                   jsx('span', {
-                    className: 'text-xs font-mono text-(--ui-text-primary) truncate',
+                    className: 'text-[13px] font-mono text-(--ui-text-primary) truncate',
                     title: m.id,
                     children: m.id
                   }),
@@ -206,13 +238,13 @@ function CatalogRow({ model, isSelected, onToggle }) {
                 ]
               }),
               m.name !== m.id && jsx('div', {
-                className: 'text-[10px] text-(--ui-text-tertiary) truncate',
+                className: 'text-xs text-(--ui-text-tertiary) truncate',
                 children: m.name
               })
             ]
           }),
           jsxs('div', {
-            className: 'flex gap-1.5 shrink-0 items-center text-[10px]',
+            className: 'flex gap-1.5 shrink-0 items-center text-xs',
             children: [
               m.prompt_price === 0 && jsx('span', { className: 'text-green-400', children: 'free' }),
               m.prompt_price > 0 && jsx('span', {
@@ -228,7 +260,7 @@ function CatalogRow({ model, isSelected, onToggle }) {
             ]
           }),
           jsx('button', {
-            className: 'text-[10px] text-(--ui-text-quaternary) hover:text-(--ui-text-primary) px-0.5',
+            className: 'text-xs text-(--ui-text-quaternary) hover:text-(--ui-text-primary) px-0.5',
             onClick: (e) => { e.stopPropagation(); setExpanded(!expanded) },
             children: expanded ? '▾' : '▸'
           })
@@ -239,7 +271,7 @@ function CatalogRow({ model, isSelected, onToggle }) {
   }, m.id)
 }
 
-function PickerPage() {
+function PickerPage({ ctx }) {
   const [catalog, setCatalog] = useState([])
   const [curatedIds, setCuratedIds] = useState(new Set())
   const [providers, setProviders] = useState([])
@@ -254,14 +286,13 @@ function PickerPage() {
   const [minContext, setMinContext] = useState(0)
   const [modalityFilter, setModalityFilter] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [showProviders, setShowProviders] = useState(false)
 
   const loadCurated = useCallback(async () => {
     try {
-      const data = await api('GET', '/models')
+      const data = await api(ctx, 'GET', '/models')
       setCuratedIds(new Set((data.models || []).map(m => m.id)))
     } catch (e) { setError(String(e)) }
-  }, [])
+  }, [ctx])
 
   const loadCatalog = useCallback(async () => {
     setLoadingCatalog(true)
@@ -271,29 +302,31 @@ function PickerPage() {
       if (modalityFilter) params.set('output_modalities', modalityFilter)
       if (minContext > 0) params.set('min_context_length', String(minContext))
       const qs = params.toString()
-      const data = await api('GET', `/catalog${qs ? '?' + qs : ''}`)
-      if (data.error) { setError(data.error); return }
-      setCatalog(data.models || [])
-      setProviders(data.providers || [])
+      const data = await api(ctx, 'GET', `/catalog${qs ? '?' + qs : ''}`)
+      if (data && data.error) { setError(data.error); return }
+      setCatalog((data && data.models) || [])
+      setProviders((data && data.providers) || [])
     } catch (e) { setError(String(e)) }
     setLoading(false)
     setLoadingCatalog(false)
-  }, [sort, modalityFilter, minContext])
+  }, [ctx, sort, modalityFilter, minContext])
 
   useEffect(() => { loadCurated() }, [loadCurated])
   useEffect(() => { loadCatalog() }, [loadCatalog])
 
   const toggle = useCallback(async (id, name) => {
-    if (curatedIds.has(id)) {
-      const data = await api('DELETE', `/models/${encodeURIComponent(id)}`)
-      if (data.error) { setError(data.error); return }
-      setCuratedIds(prev => { const next = new Set(prev); next.delete(id); return next })
-    } else {
-      const data = await api('POST', '/models', { id, description: name || id })
-      if (data.error) { setError(data.error); return }
-      setCuratedIds(prev => new Set(prev).add(id))
-    }
-  }, [curatedIds])
+    try {
+      if (curatedIds.has(id)) {
+        const data = await api(ctx, 'POST', '/remove', { id })
+        if (data && data.error) { setError(data.error); return }
+        setCuratedIds(prev => { const next = new Set(prev); next.delete(id); return next })
+      } else {
+        const data = await api(ctx, 'POST', '/models', { id, description: name || id })
+        if (data && data.error) { setError(data.error); return }
+        setCuratedIds(prev => new Set(prev).add(id))
+      }
+    } catch (e) { setError(String(e)) }
+  }, [ctx, curatedIds])
 
   const filtered = useMemo(() => {
     let list = catalog
@@ -315,7 +348,7 @@ function PickerPage() {
   const selectedCount = curatedIds.size
 
   return jsxs('div', {
-    className: 'flex h-full flex-col text-sm',
+    className: 'flex h-full flex-col text-[15px]',
     children: [
       jsxs('div', {
         className: 'flex items-center justify-between px-3 py-2 border-b border-(--ui-stroke-secondary)',
@@ -324,8 +357,8 @@ function PickerPage() {
           jsxs('div', {
             className: 'flex items-center gap-2',
             children: [
-              loadingCatalog && jsx('span', { className: 'text-[10px] text-(--ui-text-quaternary)', children: '⟳' }),
-              jsx('span', { className: 'text-xs text-(--ui-text-tertiary)', children: `${selectedCount} selected` })
+              loadingCatalog && jsx('span', { className: 'text-xs text-(--ui-text-quaternary)', children: '⟳' }),
+              jsx('span', { className: 'text-[13px] text-(--ui-text-tertiary)', children: `${selectedCount} selected` })
             ]
           })
         ]
@@ -343,17 +376,27 @@ function PickerPage() {
             value: filter,
             onChange: e => setFilter(e.target.value),
             placeholder: 'Filter models…',
-            className: 'w-full text-xs px-2.5 py-1.5 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary) placeholder:text-(--ui-text-quaternary)'
+            className: 'w-full text-[13px] px-2.5 py-1.5 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary) placeholder:text-(--ui-text-quaternary)'
           }),
           jsxs('div', {
             className: 'flex gap-1.5 items-center',
             children: [
-              jsx('span', { className: 'text-[10px] text-(--ui-text-quaternary) shrink-0', children: 'Sort' }),
-              jsx('select', {
+              jsx('span', { className: 'text-xs text-(--ui-text-quaternary) shrink-0', children: 'Sort' }),
+              jsx(UiSelect, {
                 value: sort,
-                onChange: e => setSort(e.target.value),
-                className: 'flex-1 text-[10px] px-1.5 py-0.5 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary)',
-                children: SORT_OPTIONS.map(o => jsx('option', { key: o.value, value: o.value, children: o.label }))
+                onChange: setSort,
+                options: SORT_OPTIONS,
+              })
+            ]
+          }),
+          jsxs('div', {
+            className: 'flex gap-1.5 items-center',
+            children: [
+              jsx('span', { className: 'text-xs text-(--ui-text-quaternary) shrink-0', children: 'Provider' }),
+              jsx(UiSelect, {
+                value: providerFilter || 'all',
+                onChange: v => setProviderFilter(v === 'all' ? '' : v),
+                options: [{ value: 'all', label: 'All providers' }, ...providers.map(p => ({ value: p, label: p }))],
               })
             ]
           }),
@@ -362,42 +405,18 @@ function PickerPage() {
             children: [
               jsx('button', {
                 onClick: () => setFreeOnly(!freeOnly),
-                className: cn('text-[10px] px-2 py-0.5 rounded transition-colors', freeOnly ? 'bg-green-500/20 text-green-400' : 'bg-(--chrome-background-inset) text-(--ui-text-tertiary) hover:text-(--ui-text-primary)'),
+                className: cn('text-xs px-2 py-1 rounded transition-colors', freeOnly ? 'bg-green-500/20 text-green-400' : 'bg-(--chrome-background-inset) text-(--ui-text-tertiary) hover:text-(--ui-text-primary)'),
                 children: 'Free'
               }),
               jsx('button', {
                 onClick: () => setSelectedOnly(!selectedOnly),
-                className: cn('text-[10px] px-2 py-0.5 rounded transition-colors', selectedOnly ? 'bg-(--ui-accent) text-white' : 'bg-(--chrome-background-inset) text-(--ui-text-tertiary) hover:text-(--ui-text-primary)'),
+                className: cn('text-xs px-2 py-1 rounded transition-colors', selectedOnly ? 'bg-(--ui-accent) text-white' : 'bg-(--chrome-background-inset) text-(--ui-text-tertiary) hover:text-(--ui-text-primary)'),
                 children: `Selected (${selectedCount})`
               }),
               jsx('button', {
-                onClick: () => setShowProviders(!showProviders),
-                className: cn('text-[10px] px-2 py-0.5 rounded transition-colors', providerFilter ? 'bg-(--ui-accent) text-white' : 'bg-(--chrome-background-inset) text-(--ui-text-tertiary) hover:text-(--ui-text-primary)'),
-                children: providerFilter || 'Provider'
-              }),
-              jsx('button', {
                 onClick: () => setShowAdvanced(!showAdvanced),
-                className: cn('text-[10px] px-2 py-0.5 rounded transition-colors', showAdvanced ? 'bg-(--ui-accent) text-white' : 'bg-(--chrome-background-inset) text-(--ui-text-tertiary) hover:text-(--ui-text-primary)'),
-                children: '▸ Advanced'
-              })
-            ]
-          }),
-          showProviders && jsx('div', {
-            className: 'flex gap-1.5 items-center',
-            children: [
-              jsx('select', {
-                value: providerFilter,
-                onChange: e => { setProviderFilter(e.target.value); setShowProviders(false) },
-                className: 'flex-1 text-[10px] px-1.5 py-0.5 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary)',
-                children: [
-                  jsx('option', { key: '', value: '', children: 'All providers' }),
-                  ...providers.map(p => jsx('option', { key: p, value: p, children: p }))
-                ]
-              }),
-              providerFilter && jsx('button', {
-                onClick: () => setProviderFilter(''),
-                className: 'text-[10px] px-1 text-(--ui-text-quaternary) hover:text-(--ui-text-primary)',
-                children: '✕'
+                className: cn('text-xs px-2 py-1 rounded transition-colors', showAdvanced ? 'bg-(--ui-accent) text-white' : 'bg-(--chrome-background-inset) text-(--ui-text-tertiary) hover:text-(--ui-text-primary)'),
+                children: showAdvanced ? '▾ Advanced' : '▸ Advanced'
               })
             ]
           }),
@@ -407,38 +426,22 @@ function PickerPage() {
               jsxs('div', {
                 className: 'flex gap-1.5 items-center',
                 children: [
-                  jsx('span', { className: 'text-[10px] text-(--ui-text-quaternary) shrink-0', children: 'Output' }),
-                  jsx('select', {
-                    value: modalityFilter,
-                    onChange: e => setModalityFilter(e.target.value),
-                    className: 'flex-1 text-[10px] px-1.5 py-0.5 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary)',
-                    children: [
-                      jsx('option', { key: '', value: '', children: 'All modalities' }),
-                      jsx('option', { key: 'text', value: 'text', children: 'Text' }),
-                      jsx('option', { key: 'image', value: 'image', children: 'Image' }),
-                      jsx('option', { key: 'text,image', value: 'text,image', children: 'Text + Image' }),
-                      jsx('option', { key: 'text,audio', value: 'text,audio', children: 'Text + Audio' }),
-                    ]
+                  jsx('span', { className: 'text-xs text-(--ui-text-quaternary) shrink-0', children: 'Output' }),
+                  jsx(UiSelect, {
+                    value: modalityFilter || 'all',
+                    onChange: v => setModalityFilter(v === 'all' ? '' : v),
+                    options: MODALITY_OPTIONS,
                   })
                 ]
               }),
               jsxs('div', {
                 className: 'flex gap-1.5 items-center',
                 children: [
-                  jsx('span', { className: 'text-[10px] text-(--ui-text-quaternary) shrink-0', children: 'Min Ctx' }),
-                  jsx('select', {
+                  jsx('span', { className: 'text-xs text-(--ui-text-quaternary) shrink-0', children: 'Min Ctx' }),
+                  jsx(UiSelect, {
                     value: String(minContext),
-                    onChange: e => setMinContext(Number(e.target.value)),
-                    className: 'flex-1 text-[10px] px-1.5 py-0.5 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary)',
-                    children: [
-                      jsx('option', { key: '0', value: '0', children: 'Any' }),
-                      jsx('option', { key: '8192', value: '8192', children: '8K+' }),
-                      jsx('option', { key: '32768', value: '32768', children: '32K+' }),
-                      jsx('option', { key: '131072', value: '131072', children: '128K+' }),
-                      jsx('option', { key: '262144', value: '262144', children: '256K+' }),
-                      jsx('option', { key: '524288', value: '524288', children: '512K+' }),
-                      jsx('option', { key: '1048576', value: '1048576', children: '1M+' }),
-                    ]
+                    onChange: v => setMinContext(Number(v)),
+                    options: CONTEXT_OPTIONS,
                   })
                 ]
               })
@@ -449,7 +452,7 @@ function PickerPage() {
       loading
         ? jsx('div', { className: 'flex-1 flex items-center justify-center text-(--ui-text-quaternary)', children: 'Loading catalog…' })
         : filtered.length === 0
-          ? jsx('div', { className: 'flex-1 flex items-center justify-center text-(--ui-text-quaternary) text-xs', children: catalog.length === 0 ? 'Failed to load catalog' : 'No models match filters' })
+          ? jsx('div', { className: 'flex-1 flex items-center justify-center text-(--ui-text-quaternary) text-[13px]', children: catalog.length === 0 ? 'Failed to load catalog' : 'No models match filters' })
           : jsx('div', {
               className: 'flex-1 overflow-y-auto py-1',
               children: filtered.map(m => jsx(CatalogRow, {
@@ -460,7 +463,7 @@ function PickerPage() {
               }))
             }),
       jsx('div', {
-        className: 'px-3 py-1.5 text-[10px] text-(--ui-text-quaternary) border-t border-(--ui-stroke-secondary) flex justify-between',
+        className: 'px-3 py-1.5 text-xs text-(--ui-text-quaternary) border-t border-(--ui-stroke-secondary) flex justify-between',
         children: [
           jsx('span', { children: `${filtered.length} of ${catalog.length} shown` }),
           jsx('span', { children: `${selectedCount} selected` })
@@ -480,7 +483,7 @@ export default {
         id: 'page',
         area: ROUTES_AREA,
         data: { path: PAGE },
-        render: () => jsx(PickerPage, {})
+        render: () => jsx(PickerPage, { ctx })
       },
       {
         id: 'nav',

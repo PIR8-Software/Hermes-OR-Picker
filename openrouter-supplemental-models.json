@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-08-21T02:31:30Z",
+  "updated_at": "2026-08-21T07:17:37.148508+00:00",
   "metadata": {
     "source": "Roy's supplemental OpenRouter picker models"
   },
@@ -30,7 +30,6 @@
           "id": "moonshotai/kimi-k2.6",
           "description": "Kimi K2.6 — agentic coder, 47.6% CursorBench, can be unstable"
         },
-
         {
           "id": "cohere/north-mini-code:free",
           "description": "North Mini Code — free coder, 30B/3B active, 256K ctx"
@@ -47,10 +46,53 @@
           "id": "poolside/laguna-s-2.1:free",
           "description": "Laguna S 2.1 — 118B/8B coding agent, 70% Terminal-Bench, free preview"
         },
-
         {
           "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
           "description": "Nemotron Nano Omni — free multimodal, text/image/video/audio"
+        },
+        {
+          "id": "nvidia/nemotron-3.5-lightning:free",
+          "description": "NVIDIA: Nemotron 3.5 Lightning (free)"
+        },
+        {
+          "id": "liquid/lfm-2.5-2.6b:free",
+          "description": "LiquidAI: LFM2.5-2.6B (free)"
+        },
+        {
+          "id": "dots-studio/dots-3-note-preview:free",
+          "description": "Dots Studio: Dots3-Note Preview (free)"
+        },
+        {
+          "id": "z-ai/glm-5.2:free",
+          "description": "Z.ai: GLM 5.2 (free)"
+        },
+        {
+          "id": "nvidia/nemotron-3.5-content-safety:free",
+          "description": "NVIDIA: Nemotron 3.5 Content Safety (free)"
+        },
+        {
+          "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+          "description": "NVIDIA: Nemotron 3 Ultra (free)"
+        },
+        {
+          "id": "google/gemma-4-26b-a4b-it:free",
+          "description": "Google: Gemma 4 26B A4B  (free)"
+        },
+        {
+          "id": "nvidia/nemotron-3-super-120b-a12b:free",
+          "description": "NVIDIA: Nemotron 3 Super (free)"
+        },
+        {
+          "id": "nvidia/nemotron-nano-12b-v2-vl:free",
+          "description": "NVIDIA: Nemotron Nano 12B 2 VL (free)"
+        },
+        {
+          "id": "nvidia/nemotron-nano-9b-v2:free",
+          "description": "NVIDIA: Nemotron Nano 9B V2 (free)"
+        },
+        {
+          "id": "xiaomi/mimo-v2.5-pro",
+          "description": "Xiaomi: MiMo-V2.5-Pro"
         }
       ]
     }
