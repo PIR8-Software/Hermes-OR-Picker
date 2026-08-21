@@ -5,11 +5,15 @@
  * context, modality, reasoning, capabilities, etc.
  */
 
-import { cn, host, Tip } from '@hermes/plugin-sdk'
+import {
+  cn, host, Tip,
+  ROUTES_AREA, SIDEBAR_NAV_AREA, PALETTE_AREA,
+} from '@hermes/plugin-sdk'
 import { jsx, jsxs } from 'react/jsx-runtime'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 
 const ID = 'openrouter-picker'
+const PAGE = '/openrouter-picker'
 
 async function api(method, path, body) {
   const opts = { method, headers: { 'Content-Type': 'application/json' } }
@@ -77,7 +81,6 @@ function ScoreBar({ value, max = 100, label }) {
   })
 }
 
-// ── Expanded model details ─────────────────────────────────────────
 function ModelDetails({ m }) {
   const pp = formatPrice(m.prompt_price)
   const cp = formatPrice(m.completion_price)
@@ -91,13 +94,10 @@ function ModelDetails({ m }) {
   return jsxs('div', {
     className: 'px-2 py-1.5 text-[10px] space-y-1 border-t border-(--ui-stroke-secondary)',
     children: [
-      // Description
       m.description && jsx('div', {
         className: 'text-(--ui-text-tertiary) leading-relaxed',
         children: m.description
       }),
-
-      // Pricing grid
       jsxs('div', {
         className: 'grid grid-cols-2 gap-x-3 gap-y-0.5',
         children: [
@@ -119,8 +119,6 @@ function ModelDetails({ m }) {
           ws && jsx('span', { className: 'text-(--ui-text-primary) font-mono', children: `$${ws}` }),
         ]
       }),
-
-      // Context & Limits
       jsxs('div', {
         className: 'grid grid-cols-2 gap-x-3 gap-y-0.5 pt-1 border-t border-(--ui-stroke-secondary)',
         children: [
@@ -134,12 +132,8 @@ function ModelDetails({ m }) {
           m.created && jsx('span', { className: 'text-(--ui-text-primary)', children: m.created }),
           m.expiration_date && jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Expires' }),
           m.expiration_date && jsx('span', { className: 'text-yellow-400', children: m.expiration_date }),
-          m.knowledge_cutoff && jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Knowledge cutoff' }),
-          m.knowledge_cutoff && jsx('span', { className: 'text-(--ui-text-primary)', children: m.knowledge_cutoff }),
         ]
       }),
-
-      // Benchmarks
       (m.intelligence_index != null || m.coding_index != null || m.agentic_index != null) && jsxs('div', {
         className: 'pt-1 border-t border-(--ui-stroke-secondary)',
         children: [
@@ -149,8 +143,6 @@ function ModelDetails({ m }) {
           jsx(ScoreBar, { value: m.agentic_index, label: 'Agent' }),
         ]
       }),
-
-      // Capabilities tags
       jsxs('div', {
         className: 'flex flex-wrap gap-1 pt-1 border-t border-(--ui-stroke-secondary)',
         children: [
@@ -163,8 +155,6 @@ function ModelDetails({ m }) {
           ),
         ]
       }),
-
-      // Supported parameters
       m.supported_parameters && m.supported_parameters.length > 0 && jsx('div', {
         className: 'text-[9px] text-(--ui-text-quaternary)',
         children: `Params: ${m.supported_parameters.join(', ')}`
@@ -173,7 +163,6 @@ function ModelDetails({ m }) {
   })
 }
 
-// ── Model Row ──────────────────────────────────────────────────────
 function CatalogRow({ model, isSelected, onToggle }) {
   const [expanded, setExpanded] = useState(false)
   const m = model
@@ -186,12 +175,10 @@ function CatalogRow({ model, isSelected, onToggle }) {
         : 'border-transparent hover:bg-(--chrome-action-hover)'
     ),
     children: [
-      // Main row
       jsxs('div', {
         className: 'flex items-center gap-2 px-2 py-1.5 cursor-pointer',
         onClick: () => onToggle(m.id, m.name),
         children: [
-          // Checkbox
           jsx('div', {
             className: cn(
               'w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors text-xs',
@@ -201,7 +188,6 @@ function CatalogRow({ model, isSelected, onToggle }) {
             ),
             children: isSelected ? '✓' : ''
           }),
-          // Model info
           jsxs('div', {
             className: 'flex-1 min-w-0',
             children: [
@@ -225,7 +211,6 @@ function CatalogRow({ model, isSelected, onToggle }) {
               })
             ]
           }),
-          // Quick stats
           jsxs('div', {
             className: 'flex gap-1.5 shrink-0 items-center text-[10px]',
             children: [
@@ -242,7 +227,6 @@ function CatalogRow({ model, isSelected, onToggle }) {
               }),
             ]
           }),
-          // Expand toggle
           jsx('button', {
             className: 'text-[10px] text-(--ui-text-quaternary) hover:text-(--ui-text-primary) px-0.5',
             onClick: (e) => { e.stopPropagation(); setExpanded(!expanded) },
@@ -250,21 +234,18 @@ function CatalogRow({ model, isSelected, onToggle }) {
           })
         ]
       }),
-      // Expanded details
       expanded && jsx(ModelDetails, { m })
     ]
   }, m.id)
 }
 
-// ── Main Pane ──────────────────────────────────────────────────────
-function PickerPane() {
+function PickerPage() {
   const [catalog, setCatalog] = useState([])
   const [curatedIds, setCuratedIds] = useState(new Set())
   const [providers, setProviders] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [loadingCatalog, setLoadingCatalog] = useState(false)
-
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('newest')
   const [freeOnly, setFreeOnly] = useState(false)
@@ -336,7 +317,6 @@ function PickerPane() {
   return jsxs('div', {
     className: 'flex h-full flex-col text-sm',
     children: [
-      // Header
       jsxs('div', {
         className: 'flex items-center justify-between px-3 py-2 border-b border-(--ui-stroke-secondary)',
         children: [
@@ -350,14 +330,11 @@ function PickerPane() {
           })
         ]
       }),
-
       error && jsx('div', {
         className: 'px-3 py-1 text-xs text-red-400 bg-red-400/10 cursor-pointer',
         onClick: () => setError(''),
         children: `⚠ ${error}`
       }),
-
-      // ── Filters ──
       jsxs('div', {
         className: 'px-3 py-2 flex flex-col gap-1.5 border-b border-(--ui-stroke-secondary)',
         children: [
@@ -368,7 +345,6 @@ function PickerPane() {
             placeholder: 'Filter models…',
             className: 'w-full text-xs px-2.5 py-1.5 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary) placeholder:text-(--ui-text-quaternary)'
           }),
-
           jsxs('div', {
             className: 'flex gap-1.5 items-center',
             children: [
@@ -381,7 +357,6 @@ function PickerPane() {
               })
             ]
           }),
-
           jsxs('div', {
             className: 'flex gap-1 flex-wrap',
             children: [
@@ -407,7 +382,6 @@ function PickerPane() {
               })
             ]
           }),
-
           showProviders && jsx('div', {
             className: 'flex gap-1.5 items-center',
             children: [
@@ -427,7 +401,6 @@ function PickerPane() {
               })
             ]
           }),
-
           showAdvanced && jsxs('div', {
             className: 'flex flex-col gap-1.5 pt-1 border-t border-(--ui-stroke-secondary)',
             children: [
@@ -473,8 +446,6 @@ function PickerPane() {
           })
         ]
       }),
-
-      // Model list
       loading
         ? jsx('div', { className: 'flex-1 flex items-center justify-center text-(--ui-text-quaternary)', children: 'Loading catalog…' })
         : filtered.length === 0
@@ -488,8 +459,6 @@ function PickerPane() {
                 onToggle: toggle
               }))
             }),
-
-      // Footer
       jsx('div', {
         className: 'px-3 py-1.5 text-[10px] text-(--ui-text-quaternary) border-t border-(--ui-stroke-secondary) flex justify-between',
         children: [
@@ -501,39 +470,33 @@ function PickerPane() {
   })
 }
 
-// ── Statusbar Chip ─────────────────────────────────────────────────
-function PickerChip() {
-  return jsx(Tip, {
-    label: 'OpenRouter Picker — manage your model list',
-    children: jsx('button', {
-      className: cn(
-        'inline-flex h-full items-center gap-1 px-1.5 text-[0.6875rem] transition-colors',
-        'text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover) hover:text-foreground'
-      ),
-      type: 'button',
-      onClick: () => host.navigate('/openrouter-picker'),
-      children: '⬡ OR Picker'
-    })
-  })
-}
-
 export default {
   id: ID,
   name: 'OpenRouter Picker',
   defaultEnabled: false,
   register(ctx) {
-    ctx.register({
-      id: 'pane',
-      area: 'panes',
-      title: 'OR Picker',
-      data: { placement: 'right', width: '360px' },
-      render: () => jsx(PickerPane, {})
-    })
-    ctx.register({
-      id: 'chip',
-      area: 'statusBar.right',
-      order: 140,
-      render: () => jsx(PickerChip, {})
-    })
+    ctx.registerMany([
+      {
+        id: 'page',
+        area: ROUTES_AREA,
+        data: { path: PAGE },
+        render: () => jsx(PickerPage, {})
+      },
+      {
+        id: 'nav',
+        area: SIDEBAR_NAV_AREA,
+        data: { path: PAGE, label: 'OR Picker', codicon: 'list-filter' }
+      },
+      {
+        id: 'open',
+        area: PALETTE_AREA,
+        data: {
+          id: ID + '.open',
+          label: 'Open OpenRouter Picker',
+          keywords: ['openrouter', 'models', 'picker'],
+          run: () => host.navigate(PAGE)
+        }
+      }
+    ])
   }
 }
