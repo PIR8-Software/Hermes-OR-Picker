@@ -1,0 +1,7 @@
+{
+  "name": "openrouter-picker",
+  "label": "OpenRouter Picker",
+  "description": "Manage your curated OpenRouter model picker list",
+  "version": "1.0.0",
+  "api": "plugin_api.py"
+}
