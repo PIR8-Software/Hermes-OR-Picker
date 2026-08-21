@@ -2,6 +2,7 @@
 OpenRouter Picker — backend API for managing the supplemental model list.
 
 Mounted at /api/plugins/openrouter-picker/ by Hermes dashboard.
+Exposes every field the OpenRouter /api/v1/models endpoint returns.
 """
 
 from __future__ import annotations
@@ -75,50 +76,91 @@ def _get_models_list(data: dict) -> list[dict]:
     return data.setdefault("providers", {}).setdefault("openrouter", {}).setdefault("models", [])
 
 
+def _parse_price(pricing: dict, key: str) -> float:
+    """Parse a price string to per-million-tokens float."""
+    try:
+        return float(pricing.get(key, "0")) * 1_000_000
+    except (ValueError, TypeError):
+        return 0
+
+
 def _enrich_model(m: dict, curated_ids: set[str]) -> dict[str, Any]:
-    """Enrich a raw OpenRouter model with display-friendly fields."""
+    """Enrich a raw OpenRouter model with all display-friendly fields."""
     mid = m.get("id", "")
     pricing = m.get("pricing", {})
-    ctx = m.get("context_length", 0)
-    prompt_price = pricing.get("prompt", "0")
-    comp_price = pricing.get("completion", "0")
+    arch = m.get("architecture", {})
+    top = m.get("top_provider", {})
+    bench = m.get("benchmarks", {})
+    aa = bench.get("artificial_analysis", {}) if isinstance(bench, dict) else {}
+    reasoning = m.get("reasoning", {})
 
-    # Extract provider from ID (before the /)
     provider = mid.split("/")[0] if "/" in mid else ""
 
-    # Detect variant from ID suffix
     variant = ""
     if mid.endswith(":free"):
         variant = "free"
     elif mid.endswith(":batch"):
         variant = "batch"
 
-    # Detect output modalities from architecture
-    arch = m.get("architecture", {})
-    output_mods = arch.get("output_modalities", []) if isinstance(arch, dict) else []
-    input_mods = arch.get("input_modalities", []) if isinstance(arch, dict) else []
-
-    # Parse prices
-    try:
-        pp = float(prompt_price) * 1_000_000
-    except (ValueError, TypeError):
-        pp = 0
-    try:
-        cp = float(comp_price) * 1_000_000
-    except (ValueError, TypeError):
-        cp = 0
+    created_ts = m.get("created", 0)
+    created_str = ""
+    if created_ts:
+        try:
+            created_str = datetime.fromtimestamp(created_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        except Exception:
+            pass
 
     return {
+        # ── Identity ──
         "id": mid,
         "name": m.get("name", mid),
+        "description": (m.get("description") or "")[:500],
+        "canonical_slug": m.get("canonical_slug", ""),
+        "huggingface_id": m.get("hugging_face_id"),
         "provider": provider,
         "variant": variant,
-        "context_length": ctx,
-        "prompt_price": pp,
-        "completion_price": cp,
-        "output_modalities": output_mods,
-        "input_modalities": input_mods,
+        "created": created_str,
         "selected": mid in curated_ids,
+
+        # ── Context & Limits ──
+        "context_length": m.get("context_length", 0),
+        "max_completion_tokens": top.get("max_completion_tokens", 0),
+        "is_moderated": top.get("is_moderated", False),
+
+        # ── Architecture ──
+        "modality": arch.get("modality", ""),
+        "input_modalities": arch.get("input_modalities", []) if isinstance(arch, dict) else [],
+        "output_modalities": arch.get("output_modalities", []) if isinstance(arch, dict) else [],
+        "tokenizer": arch.get("tokenizer", ""),
+        "instruct_type": arch.get("instruct_type"),
+
+        # ── Pricing (per million tokens) ──
+        "prompt_price": _parse_price(pricing, "prompt"),
+        "completion_price": _parse_price(pricing, "completion"),
+        "image_price": _parse_price(pricing, "image"),
+        "audio_price": _parse_price(pricing, "audio"),
+        "cache_read_price": _parse_price(pricing, "input_cache_read"),
+        "cache_write_price": _parse_price(pricing, "input_cache_write"),
+        "web_search_price": pricing.get("web_search", ""),
+        "reasoning_price": _parse_price(pricing, "internal_reasoning"),
+
+        # ── Benchmarks ──
+        "intelligence_index": aa.get("intelligence_index"),
+        "coding_index": aa.get("coding_index"),
+        "agentic_index": aa.get("agentic_index"),
+
+        # ── Reasoning ──
+        "reasoning_enabled": reasoning.get("default_enabled", False) if isinstance(reasoning, dict) else False,
+        "reasoning_mandatory": reasoning.get("mandatory", False) if isinstance(reasoning, dict) else False,
+        "reasoning_efforts": reasoning.get("supported_efforts", []) if isinstance(reasoning, dict) else [],
+        "reasoning_default_effort": reasoning.get("default_effort") if isinstance(reasoning, dict) else None,
+
+        # ── Capabilities ──
+        "supported_parameters": m.get("supported_parameters", []),
+        "has_tools": "tools" in (m.get("supported_parameters") or []),
+        "has_vision": bool(arch.get("input_modalities", [])) and "image" in (arch.get("input_modalities") or []),
+        "expiration_date": m.get("expiration_date"),
+        "knowledge_cutoff": m.get("knowledge_cutoff"),
     }
 
 
@@ -146,7 +188,6 @@ def _fetch_catalog(
         if (now - ts) < CATALOG_TTL:
             return cached
 
-    # Build query params
     params: list[str] = []
     if sort:
         params.append(f"sort={sort}")
@@ -171,7 +212,6 @@ def _fetch_catalog(
         resp.raise_for_status()
         raw = resp.json().get("data", [])
     except Exception:
-        # Return empty on failure (cache miss)
         return []
 
     curated_ids = set()
@@ -212,7 +252,6 @@ def get_catalog(
         max_completion_price=max_completion_price,
     )
 
-    # Also return available filter options for the UI
     providers = sorted({m["provider"] for m in catalog if m["provider"]})
     modality_set: set[str] = set()
     for m in catalog:
