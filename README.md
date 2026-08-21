@@ -51,3 +51,9 @@ New sessions pick this up. Do not restart the gateway from inside a live gateway
 | `src/desktop-plugin/plugin.js` | Desktop UI |
 | `src/backend-api/` | Dashboard FastAPI plugin |
 | `src/model-provider/` | Hermes provider `or-picker` |
+
+## Tests
+
+```bash
+uv run --with pytest pytest -q
+```
