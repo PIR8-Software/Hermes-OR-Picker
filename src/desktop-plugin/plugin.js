@@ -473,7 +473,7 @@ function PickerPage() {
 export default {
   id: ID,
   name: 'OpenRouter Picker',
-  defaultEnabled: false,
+  defaultEnabled: true,
   register(ctx) {
     ctx.registerMany([
       {
@@ -485,7 +485,7 @@ export default {
       {
         id: 'nav',
         area: SIDEBAR_NAV_AREA,
-        data: { path: PAGE, label: 'OR Picker', codicon: 'list-filter' }
+        data: { path: PAGE, label: 'OR Picker', codicon: 'list-unordered' }
       },
       {
         id: 'open',
