@@ -29,7 +29,6 @@ except Exception:
 
 router = APIRouter()
 
-# The supplemental JSON file — symlinked from ~/.hermes/
 MODELS_PATH = Path(os.environ.get(
     "OPENROUTER_PICKER_MODELS",
     str(Path.home() / ".hermes" / "openrouter-supplemental-models.json"),
@@ -37,61 +36,9 @@ MODELS_PATH = Path(os.environ.get(
 
 OPENROUTER_API = "https://openrouter.ai/api/v1/models"
 
-# Cache the full catalog for 5 minutes so repeated pane loads don't hammer the API
-_CATALOG_CACHE: dict[str, Any] | None = None
-_CATALOG_CACHE_AT: float = 0
-CATALOG_TTL = 300
-
-
-def _fetch_catalog() -> list[dict[str, Any]]:
-    """Fetch the full OpenRouter model list with in-memory caching."""
-    global _CATALOG_CACHE, _CATALOG_CACHE_AT
-    now = time.time()
-    if _CATALOG_CACHE is not None and (now - _CATALOG_CACHE_AT) < CATALOG_TTL:
-        return _CATALOG_CACHE  # type: ignore[return-value]
-    try:
-        import httpx
-        resp = httpx.get(OPENROUTER_API, timeout=20)
-        resp.raise_for_status()
-        raw = resp.json().get("data", [])
-    except Exception:
-        return _CATALOG_CACHE or []  # type: ignore[return-value]
-
-    curated_ids = set()
-    data = _read_models()
-    for m in _get_models_list(data):
-        curated_ids.add(m["id"])
-
-    enriched: list[dict[str, Any]] = []
-    for m in raw:
-        mid = m.get("id", "")
-        if not mid:
-            continue
-        pricing = m.get("pricing", {})
-        ctx = m.get("context_length", 0)
-        prompt_price = pricing.get("prompt", "0")
-        comp_price = pricing.get("completion", "0")
-        desc_parts: list[str] = []
-        if ctx:
-            desc_parts.append(f"{ctx // 1024}K ctx")
-        try:
-            pp = float(prompt_price) * 1_000_000
-            cp = float(comp_price) * 1_000_000
-            if pp or cp:
-                desc_parts.append(f"${pp:.2f}/${cp:.2f}/M")
-        except (ValueError, TypeError):
-            pass
-        enriched.append({
-            "id": mid,
-            "name": m.get("name", mid),
-            "description": " — ".join(desc_parts) if desc_parts else "",
-            "context_length": ctx,
-            "selected": mid in curated_ids,
-        })
-
-    _CATALOG_CACHE = enriched
-    _CATALOG_CACHE_AT = now
-    return enriched
+# Cache: key = query params hash → (data, timestamp)
+_CATALOG_CACHE: dict[str, tuple[list[dict], float]] = {}
+CATALOG_TTL = 300  # 5 minutes
 
 
 def _read_models() -> dict[str, Any]:
@@ -128,6 +75,115 @@ def _get_models_list(data: dict) -> list[dict]:
     return data.setdefault("providers", {}).setdefault("openrouter", {}).setdefault("models", [])
 
 
+def _enrich_model(m: dict, curated_ids: set[str]) -> dict[str, Any]:
+    """Enrich a raw OpenRouter model with display-friendly fields."""
+    mid = m.get("id", "")
+    pricing = m.get("pricing", {})
+    ctx = m.get("context_length", 0)
+    prompt_price = pricing.get("prompt", "0")
+    comp_price = pricing.get("completion", "0")
+
+    # Extract provider from ID (before the /)
+    provider = mid.split("/")[0] if "/" in mid else ""
+
+    # Detect variant from ID suffix
+    variant = ""
+    if mid.endswith(":free"):
+        variant = "free"
+    elif mid.endswith(":batch"):
+        variant = "batch"
+
+    # Detect output modalities from architecture
+    arch = m.get("architecture", {})
+    output_mods = arch.get("output_modalities", []) if isinstance(arch, dict) else []
+    input_mods = arch.get("input_modalities", []) if isinstance(arch, dict) else []
+
+    # Parse prices
+    try:
+        pp = float(prompt_price) * 1_000_000
+    except (ValueError, TypeError):
+        pp = 0
+    try:
+        cp = float(comp_price) * 1_000_000
+    except (ValueError, TypeError):
+        cp = 0
+
+    return {
+        "id": mid,
+        "name": m.get("name", mid),
+        "provider": provider,
+        "variant": variant,
+        "context_length": ctx,
+        "prompt_price": pp,
+        "completion_price": cp,
+        "output_modalities": output_mods,
+        "input_modalities": input_mods,
+        "selected": mid in curated_ids,
+    }
+
+
+def _fetch_catalog(
+    sort: str = "",
+    output_modalities: str = "",
+    supported_parameters: str = "",
+    min_context: int = 0,
+    max_prompt_price: float = -1,
+    max_completion_price: float = -1,
+) -> list[dict[str, Any]]:
+    """Fetch the full OpenRouter model list with server-side filtering + caching."""
+    cache_key = json.dumps({
+        "sort": sort,
+        "output_modalities": output_modalities,
+        "supported_parameters": supported_parameters,
+        "min_context": min_context,
+        "max_prompt_price": max_prompt_price,
+        "max_completion_price": max_completion_price,
+    }, sort_keys=True)
+
+    now = time.time()
+    if cache_key in _CATALOG_CACHE:
+        cached, ts = _CATALOG_CACHE[cache_key]
+        if (now - ts) < CATALOG_TTL:
+            return cached
+
+    # Build query params
+    params: list[str] = []
+    if sort:
+        params.append(f"sort={sort}")
+    if output_modalities:
+        params.append(f"output_modalities={output_modalities}")
+    if supported_parameters:
+        params.append(f"supported_parameters={supported_parameters}")
+    if min_context > 0:
+        params.append(f"min_context_length={min_context}")
+    if max_prompt_price >= 0:
+        params.append(f"max_prompt_price={max_prompt_price}")
+    if max_completion_price >= 0:
+        params.append(f"max_completion_price={max_completion_price}")
+
+    url = OPENROUTER_API
+    if params:
+        url += "?" + "&".join(params)
+
+    try:
+        import httpx
+        resp = httpx.get(url, timeout=20)
+        resp.raise_for_status()
+        raw = resp.json().get("data", [])
+    except Exception:
+        # Return empty on failure (cache miss)
+        return []
+
+    curated_ids = set()
+    data = _read_models()
+    for m in _get_models_list(data):
+        curated_ids.add(m["id"])
+
+    enriched = [_enrich_model(m, curated_ids) for m in raw if m.get("id")]
+    _CATALOG_CACHE[cache_key] = (enriched, now)
+    return enriched
+
+
 # ── GET /models ──────────────────────────────────────────────────────
 @router.get("/models")
 def get_models():
@@ -138,10 +194,36 @@ def get_models():
 
 # ── GET /catalog ─────────────────────────────────────────────────────
 @router.get("/catalog")
-def get_catalog():
-    """Return the full OpenRouter model list, each tagged with selected status."""
-    catalog = _fetch_catalog()
-    return {"models": catalog, "count": len(catalog)}
+def get_catalog(
+    sort: str = "",
+    output_modalities: str = "",
+    supported_parameters: str = "",
+    min_context_length: int = 0,
+    max_prompt_price: float = -1,
+    max_completion_price: float = -1,
+):
+    """Return the full OpenRouter model list with server-side filtering."""
+    catalog = _fetch_catalog(
+        sort=sort,
+        output_modalities=output_modalities,
+        supported_parameters=supported_parameters,
+        min_context=min_context_length,
+        max_prompt_price=max_prompt_price,
+        max_completion_price=max_completion_price,
+    )
+
+    # Also return available filter options for the UI
+    providers = sorted({m["provider"] for m in catalog if m["provider"]})
+    modality_set: set[str] = set()
+    for m in catalog:
+        modality_set.update(m.get("output_modalities", []))
+
+    return {
+        "models": catalog,
+        "count": len(catalog),
+        "providers": providers,
+        "modalities": sorted(modality_set),
+    }
 
 
 # ── POST /models ─────────────────────────────────────────────────────
@@ -196,46 +278,6 @@ def delete_model(model_id: str):
         return {"error": f"Model {model_id} not found"}
     _write_models(data)
     return {"ok": True, "removed": model_id, "count": len(models)}
-
-
-# ── POST /search ────────────────────────────────────────────────────
-@router.post("/search")
-def search_openrouter(body: dict | None = None):
-    q = (body or {}).get("q", "")
-    if not q:
-        return {"error": "q parameter required"}
-
-    try:
-        import httpx
-        resp = httpx.get(OPENROUTER_API, timeout=15)
-        resp.raise_for_status()
-        all_models = resp.json().get("data", [])
-    except Exception as e:
-        return {"error": f"OpenRouter API error: {e}"}
-
-    q_lower = q.lower()
-    matches = []
-    for m in all_models:
-        mid = m.get("id", "")
-        name = m.get("name", "")
-        if q_lower in mid.lower() or q_lower in name.lower():
-            pricing = m.get("pricing", {})
-            ctx = m.get("context_length", 0)
-            prompt_price = pricing.get("prompt", "0")
-            comp_price = pricing.get("completion", "0")
-            desc = name
-            if ctx:
-                desc += f" — {ctx // 1024}K ctx"
-            try:
-                pp = float(prompt_price) * 1_000_000
-                cp = float(comp_price) * 1_000_000
-                if pp or cp:
-                    desc += f" — ${pp:.2f}/${cp:.2f}/M"
-            except (ValueError, TypeError):
-                pass
-            matches.append({"id": mid, "description": desc, "context_length": ctx})
-
-    return {"matches": matches[:30], "total": len(matches)}
 
 
 # ── POST /reorder ───────────────────────────────────────────────────
