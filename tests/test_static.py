@@ -24,6 +24,12 @@ def test_manifests_parse():
     json.loads((ROOT / "src" / "backend-api" / "manifest.json").read_text())
 
 
+def test_starter_list_is_empty():
+    data = json.loads((ROOT / "openrouter-supplemental-models.json").read_text())
+    models = data["providers"]["openrouter"]["models"]
+    assert models == []
+
+
 def test_curated_ids_match_valid_id_regex():
     import sys
 
@@ -31,7 +37,5 @@ def test_curated_ids_match_valid_id_regex():
     import plugin_api as api
 
     data = json.loads((ROOT / "openrouter-supplemental-models.json").read_text())
-    models = data["providers"]["openrouter"]["models"]
-    assert models, "curated list should not be empty"
-    for m in models:
+    for m in data["providers"]["openrouter"]["models"]:
         assert api._valid_id(m["id"]), m["id"]

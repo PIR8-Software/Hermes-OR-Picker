@@ -22,8 +22,8 @@ Do **not** set `model_catalog.providers.openrouter.url` — that **replaces** th
 | What | Path |
 |------|------|
 | Git | this repo (`main`) |
-| Curated JSON | `openrouter-supplemental-models.json` |
-| JSON (live) | `$HERMES_HOME/openrouter-supplemental-models.json` (symlink or copy) |
+| Starter JSON (git) | `openrouter-supplemental-models.json` (**empty** — do not put personal picks here) |
+| JSON (live) | `$HERMES_HOME/openrouter-supplemental-models.json` (**real file**, never a symlink to git) |
 | Desktop UI | `$HERMES_HOME/desktop-plugins/openrouter-picker/plugin.js` |
 | Desktop UI (Windows) | `%LOCALAPPDATA%\hermes\desktop-plugins\openrouter-picker\plugin.js` |
 | Dashboard API | `$HERMES_HOME/plugins/openrouter-picker/` |

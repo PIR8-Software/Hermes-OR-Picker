@@ -32,9 +32,11 @@ copy_file "$ROOT/src/model-provider/plugin.yaml" \
   "$HERMES_HOME/plugins/model-providers/or-picker/plugin.yaml"
 
 json_dest="$HERMES_HOME/openrouter-supplemental-models.json"
-if [ ! -e "$json_dest" ]; then
+if [ -L "$json_dest" ]; then
+  echo "Refusing to overwrite symlink $json_dest (unlink it first so a git pull cannot wipe your list)"
+elif [ ! -e "$json_dest" ]; then
   cp "$ROOT/openrouter-supplemental-models.json" "$json_dest"
-  echo "Wrote $json_dest"
+  echo "Wrote empty starter $json_dest"
 else
   echo "Left existing $json_dest in place"
 fi

@@ -13,6 +13,8 @@ Do **not** set `model_catalog.providers.openrouter.url` — that replaces the of
 
 ## Install
 
+**Linux / macOS (gateway host):**
+
 ```bash
 git clone https://github.com/croycrabtree/Hermes-OR-Picker.git
 cd Hermes-OR-Picker
@@ -20,7 +22,17 @@ cd Hermes-OR-Picker
 hermes plugins enable openrouter-picker --no-allow-tool-override
 ```
 
+**Windows (desktop app):**
+
+```powershell
+git clone https://github.com/croycrabtree/Hermes-OR-Picker.git
+cd Hermes-OR-Picker
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
 Then in the desktop app: **Ctrl/Cmd+K → Reload desktop plugins**.
+
+The repo ships an **empty** curated list. Your picks are stored in `$HERMES_HOME/openrouter-supplemental-models.json` and are not overwritten on reinstall. Do not symlink that file to the git checkout — a pull would wipe your list.
 
 `install.sh` copies:
 
@@ -31,20 +43,12 @@ Then in the desktop app: **Ctrl/Cmd+K → Reload desktop plugins**.
 | `src/model-provider/` | `$HERMES_HOME/plugins/model-providers/or-picker/` |
 | `openrouter-supplemental-models.json` | `$HERMES_HOME/openrouter-supplemental-models.json` (skipped if already present) |
 
-`$HERMES_HOME` defaults to `~/.hermes`.
+`$HERMES_HOME` defaults to `~/.hermes`. On Windows, `install.ps1` always writes `plugin.js` to `%LOCALAPPDATA%\hermes\desktop-plugins\openrouter-picker\` and installs the API/provider only if a Hermes home exists on that machine.
 
 ### Split desktop / gateway
 
-If Hermes Desktop runs on a different machine than the gateway:
-
 1. Run `install.sh` on the **gateway** host (API + provider + JSON).
-2. Copy `src/desktop-plugin/plugin.js` to the **desktop** machine:
-
-```text
-%LOCALAPPDATA%\hermes\desktop-plugins\openrouter-picker\plugin.js
-```
-
-(or `$HERMES_HOME/desktop-plugins/openrouter-picker/plugin.js` on Linux/macOS).
+2. Run `install.ps1` on the **Windows desktop** (or copy `plugin.js` to `%LOCALAPPDATA%\hermes\desktop-plugins\openrouter-picker\`).
 
 Python API changes need a dashboard remount on the gateway host. Do not restart the gateway from inside a live gateway chat.
 
@@ -86,11 +90,12 @@ hermes model picker → provider "OR Picker" (separate from OpenRouter)
 
 | Path | Role |
 |------|------|
-| `openrouter-supplemental-models.json` | Starter curated list |
+| `openrouter-supplemental-models.json` | Empty starter list (live picks live under `$HERMES_HOME`) |
 | `src/desktop-plugin/plugin.js` | Desktop UI |
 | `src/backend-api/` | Dashboard FastAPI plugin |
 | `src/model-provider/` | Hermes provider `or-picker` |
-| `install.sh` | Copy into `$HERMES_HOME` |
+| `install.sh` | Copy into `$HERMES_HOME` (Linux/macOS) |
+| `install.ps1` | Copy into `%LOCALAPPDATA%\hermes` (Windows) |
 | `AGENT_HANDOFF.md` | Agent pitfalls and deploy notes |
 
 ## Tests
