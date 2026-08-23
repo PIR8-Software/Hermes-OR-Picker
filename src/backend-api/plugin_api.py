@@ -38,10 +38,15 @@ MODELS_PATH = Path(os.environ.get(
 ))
 
 OPENROUTER_API = "https://openrouter.ai/api/v1/models"
+OPENROUTER_BLOG_FEED = "https://openrouter.ai/blog/feed.xml"
 
 # Cache: key = query params hash → (data, timestamp)
 _CATALOG_CACHE: dict[str, tuple[list[dict], float]] = {}
 CATALOG_TTL = 300  # 5 minutes
+
+# Blog feed cache
+_BLOG_CACHE: tuple[list[dict], float] | None = None
+BLOG_TTL = 1800  # 30 minutes
 
 
 def _read_models() -> dict[str, Any]:
@@ -413,3 +418,47 @@ def get_config():
         "is_symlink": MODELS_PATH.is_symlink() if MODELS_PATH.exists() else False,
         "resolved": str(MODELS_PATH.resolve()) if MODELS_PATH.exists() else None,
     }
+
+
+# ── GET /blog ──────────────────────────────────────────────────────
+def _parse_rss_feed(xml_text: str) -> list[dict[str, str]]:
+    """Parse RSS/XML into a flat list of {title, link, description, pubDate}."""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return []
+    items: list[dict[str, str]] = []
+    for item in root.iter("item"):
+        entry: dict[str, str] = {}
+        for child in item:
+            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if tag in ("title", "link", "description", "pubDate"):
+                entry[tag] = (child.text or "").strip()
+        if entry.get("title") and entry.get("link"):
+            items.append(entry)
+    return items
+
+
+def _fetch_blog() -> list[dict[str, str]]:
+    global _BLOG_CACHE
+    now = time.time()
+    if _BLOG_CACHE is not None:
+        cached, ts = _BLOG_CACHE
+        if (now - ts) < BLOG_TTL:
+            return cached
+    try:
+        import httpx
+        resp = httpx.get(OPENROUTER_BLOG_FEED, timeout=15)
+        resp.raise_for_status()
+        items = _parse_rss_feed(resp.text)
+    except Exception:
+        items = []
+    _BLOG_CACHE = (items, now)
+    return items
+
+
+@router.get("/blog")
+def get_blog(limit: int = 15):
+    items = _fetch_blog()
+    return {"posts": items[:limit], "count": min(len(items), limit)}

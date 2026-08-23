@@ -293,6 +293,10 @@ function PickerPage({ ctx }) {
   const [minContext, setMinContext] = useState(0)
   const [modalityFilter, setModalityFilter] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [blogPosts, setBlogPosts] = useState([])
+  const [showBlog, setShowBlog] = useState(false)
+  const [blogLoaded, setBlogLoaded] = useState(false)
+  const [hasNewPosts, setHasNewPosts] = useState(true)
 
   const loadCurated = useCallback(async () => {
     try {
@@ -320,6 +324,37 @@ function PickerPage({ ctx }) {
 
   useEffect(() => { loadCurated() }, [loadCurated])
   useEffect(() => { loadCatalog() }, [loadCatalog])
+
+  const loadBlog = useCallback(async () => {
+    if (blogLoaded) return
+    try {
+      const data = await api(ctx, 'GET', '/blog?limit=10')
+      if (data && data.posts && data.posts.length > 0) {
+        setBlogPosts(data.posts)
+        // Show NEW tag if no previous view recorded, or if newest post changed
+        const lastSeen = localStorage.getItem('or-picker-blog-last')
+        if (!lastSeen || lastSeen !== data.posts[0].link) {
+          setHasNewPosts(true)
+        }
+      }
+    } catch (e) {
+      // Blog endpoint may not be available yet
+    }
+    setBlogLoaded(true)
+  }, [ctx, blogLoaded])
+
+  useEffect(() => { if (showBlog) loadBlog() }, [showBlog, loadBlog])
+  useEffect(() => { loadBlog() }, [loadBlog])
+
+  // Mark posts as seen when panel is opened
+  useEffect(() => {
+    if (showBlog && blogPosts.length > 0) {
+      try {
+        localStorage.setItem('or-picker-blog-last', blogPosts[0].link)
+        setHasNewPosts(false)
+      } catch {}
+    }
+  }, [showBlog, blogPosts])
 
   const toggle = useCallback(async (id, name) => {
     try {
@@ -471,6 +506,55 @@ function PickerPage({ ctx }) {
                 onToggle: toggle
               }))
             }),
+      jsx('div', {
+        className: 'border-t border-(--ui-stroke-secondary)',
+        children: [
+          jsx('button', {
+            className: 'w-full flex items-center justify-between px-3 py-1.5 text-xs text-(--ui-text-tertiary) hover:text-(--ui-text-primary) hover:bg-(--chrome-action-hover) transition-colors',
+            onClick: () => setShowBlog(!showBlog),
+            children: [
+              jsxs('span', {
+                className: 'flex items-center gap-1.5',
+                children: [
+                  jsx('span', { children: '📰 OpenRouter News' }),
+                  hasNewPosts && jsx('span', {
+                    className: 'text-[9px] px-1 py-0 rounded font-medium',
+                    style: { backgroundColor: 'rgba(34, 197, 94, 0.2)', color: '#4ade80' },
+                    children: 'NEW'
+                  })
+                ]
+              }),
+              jsx('span', { children: showBlog ? '▾' : '▸' })
+            ]
+          }),
+          showBlog && jsx('div', {
+            className: 'max-h-72 overflow-y-auto px-3 pb-2',
+            children: blogPosts.length === 0
+              ? jsx('div', { className: 'text-xs text-(--ui-text-quaternary) py-1', children: blogLoaded ? 'No posts found' : 'Loading…' })
+              : blogPosts.map((post, i) => jsx('div', {
+                  key: i,
+                  className: 'py-2 border-b border-(--ui-stroke-secondary) last:border-b-0',
+                  children: [
+                    jsx('a', {
+                      href: post.link,
+                      target: '_blank',
+                      rel: 'noopener noreferrer',
+                      className: 'text-[12px] font-medium text-(--ui-accent, #60a5fa) hover:underline leading-snug',
+                      children: post.title
+                    }),
+                    post.description && jsx('div', {
+                      className: 'text-[11px] text-(--ui-text-tertiary) leading-relaxed mt-0.5 line-clamp-3',
+                      children: post.description
+                    }),
+                    post.pubDate && jsx('div', {
+                      className: 'text-[10px] text-(--ui-text-quaternary) mt-0.5',
+                      children: post.pubDate.replace(/ \d{2}:\d{2}:\d{2} GMT/, '')
+                    })
+                  ]
+                }, i))
+          })
+        ]
+      }),
       jsx('div', {
         className: 'px-3 py-1.5 text-xs text-(--ui-text-quaternary) border-t border-(--ui-stroke-secondary) flex justify-between',
         children: [
