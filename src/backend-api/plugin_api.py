@@ -186,6 +186,7 @@ def _enrich_model(m: dict, curated_ids: set[str]) -> dict[str, Any]:
         "provider": provider,
         "variant": variant,
         "created": created_str,
+        "created_ts": created_ts,
         "selected": mid in curated_ids,
 
         # ── Context & Limits ──
@@ -214,6 +215,7 @@ def _enrich_model(m: dict, curated_ids: set[str]) -> dict[str, Any]:
         "intelligence_index": aa.get("intelligence_index"),
         "coding_index": aa.get("coding_index"),
         "agentic_index": aa.get("agentic_index"),
+        "design_arena": bench.get("design_arena", []) if isinstance(bench, dict) else [],
 
         # ── Reasoning ──
         "reasoning_enabled": reasoning.get("default_enabled", False) if isinstance(reasoning, dict) else False,
@@ -462,3 +464,237 @@ def _fetch_blog() -> list[dict[str, str]]:
 def get_blog(limit: int = 15):
     items = _fetch_blog()
     return {"posts": items[:limit], "count": min(len(items), limit)}
+
+
+# ── GET /credits ───────────────────────────────────────────────────
+_CREDITS_CACHE: tuple[dict, float] | None = None
+CREDITS_TTL = 60  # 1 minute
+
+
+def _get_openrouter_key() -> str:
+    """Get OpenRouter API key from environment or Hermes secret store."""
+    import os
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    if key:
+        return key
+    try:
+        from agent.secret_scope import get_secret
+        return get_secret("OPENROUTER_API_KEY") or ""
+    except Exception:
+        pass
+    try:
+        from hermes_constants import get_hermes_home
+        env_path = get_hermes_home() / ".env"
+        if env_path.exists():
+            for line in env_path.read_text().splitlines():
+                if line.startswith("OPENROUTER_API_KEY="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    except Exception:
+        pass
+    return ""
+
+
+def _fetch_credits() -> dict:
+    global _CREDITS_CACHE
+    now = time.time()
+    if _CREDITS_CACHE is not None:
+        cached, ts = _CREDITS_CACHE
+        if (now - ts) < CREDITS_TTL:
+            return cached
+    key = _get_openrouter_key()
+    if not key:
+        return {"error": "No OpenRouter API key configured"}
+    try:
+        import httpx
+        resp = httpx.get(
+            "https://openrouter.ai/api/v1/credits",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        result = {
+            "total_credits": data.get("total_credits", 0),
+            "total_usage": data.get("total_usage", 0),
+            "remaining": (data.get("total_credits", 0) or 0) - (data.get("total_usage", 0) or 0),
+        }
+    except Exception as e:
+        result = {"error": str(e)}
+    _CREDITS_CACHE = (result, now)
+    return result
+
+
+@router.get("/credits")
+def get_credits():
+    return _fetch_credits()
+
+
+# ── GET /default-models ────────────────────────────────────────────
+@router.get("/default-models")
+def get_default_models():
+    """Return model IDs from Hermes' built-in OpenRouter catalog."""
+    try:
+        from hermes_cli.models import OPENROUTER_MODELS
+        return {"ids": [mid for mid, _ in OPENROUTER_MODELS]}
+    except Exception:
+        return {"ids": [], "error": "Could not load default models"}
+
+
+# ── GET /analytics ─────────────────────────────────────────────────
+_ANALYTICS_CACHE: tuple[dict, float] | None = None
+ANALYTICS_TTL = 60  # 1 minute
+
+
+def _fetch_analytics() -> dict:
+    global _ANALYTICS_CACHE
+    now = time.time()
+    if _ANALYTICS_CACHE is not None:
+        cached, ts = _ANALYTICS_CACHE
+        if (now - ts) < ANALYTICS_TTL:
+            return cached
+    key = _get_openrouter_key()
+    if not key:
+        return {"error": "No OpenRouter API key configured"}
+    try:
+        import httpx
+        resp = httpx.get(
+            "https://openrouter.ai/api/v1/key",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", {})
+        result = {
+            "label": data.get("label", ""),
+            "limit": data.get("limit"),
+            "limit_remaining": data.get("limit_remaining"),
+            "limit_reset": data.get("limit_reset"),
+            "include_byok_in_limit": data.get("include_byok_in_limit", False),
+            "usage": data.get("usage", 0),
+            "usage_daily": data.get("usage_daily", 0),
+            "usage_weekly": data.get("usage_weekly", 0),
+            "usage_monthly": data.get("usage_monthly", 0),
+            "byok_usage": data.get("byok_usage", 0),
+            "byok_usage_daily": data.get("byok_usage_daily", 0),
+            "byok_usage_weekly": data.get("byok_usage_weekly", 0),
+            "byok_usage_monthly": data.get("byok_usage_monthly", 0),
+            "is_free_tier": data.get("is_free_tier", False),
+        }
+    except Exception as e:
+        result = {"error": str(e)}
+    _ANALYTICS_CACHE = (result, now)
+    return result
+
+
+@router.get("/analytics")
+def get_analytics():
+    return _fetch_analytics()
+
+
+# ── GET /activity ──────────────────────────────────────────────────
+_ACTIVITY_CACHE: tuple[list, float] | None = None
+ACTIVITY_TTL = 300  # 5 minutes
+
+
+def _fetch_activity(mgmt_key: str = "") -> list:
+    global _ACTIVITY_CACHE
+    now = time.time()
+    if _ACTIVITY_CACHE is not None:
+        cached, ts = _ACTIVITY_CACHE
+        if (now - ts) < ACTIVITY_TTL:
+            return cached
+    key = mgmt_key or _get_openrouter_key()
+    if not key:
+        return []
+    try:
+        import httpx
+        from datetime import datetime, timedelta, timezone
+        
+        resp = httpx.get(
+            "https://openrouter.ai/api/v1/activity",
+            headers={"Authorization": f"Bearer {key}"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        
+        # Calculate date boundaries (UTC)
+        today = datetime.now(timezone.utc).date()
+        week_start = today - timedelta(days=today.weekday())  # Monday
+        month_start = today.replace(day=1)
+        
+        # Aggregate by model with time breakdowns
+        by_model: dict[str, dict] = {}
+        totals = {"today": 0, "week": 0, "month": 0, "all": 0}
+        
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            model = item.get("model", "")
+            if not model:
+                continue
+            
+            # Parse date
+            date_str = item.get("date", "")
+            item_date = None
+            if date_str:
+                try:
+                    item_date = datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+                except (ValueError, TypeError):
+                    pass
+            if item_date is None:
+                # Default to today if no date
+                item_date = today
+            
+            usage = item.get("usage", 0) or 0
+            requests = item.get("requests", 0) or 0
+            prompt_tok = item.get("prompt_tokens", 0) or 0
+            completion_tok = item.get("completion_tokens", 0) or 0
+            
+            # Update totals
+            if item_date == today:
+                totals["today"] += usage
+            if item_date >= week_start:
+                totals["week"] += usage
+            if item_date >= month_start:
+                totals["month"] += usage
+            totals["all"] += usage
+            
+            if model not in by_model:
+                by_model[model] = {
+                    "model": model,
+                    "provider": item.get("provider_name", ""),
+                    "cost_today": 0, "cost_week": 0, "cost_month": 0, "cost_all": 0,
+                    "requests_today": 0, "requests_week": 0, "requests_month": 0, "requests_all": 0,
+                    "tokens_today": 0, "tokens_week": 0, "tokens_month": 0, "tokens_all": 0,
+                }
+            entry = by_model[model]
+            
+            entry["cost_all"] += usage
+            entry["requests_all"] += requests
+            entry["tokens_all"] += prompt_tok + completion_tok
+            
+            if item_date == today:
+                entry["cost_today"] += usage
+                entry["requests_today"] += requests
+                entry["tokens_today"] += prompt_tok + completion_tok
+            if item_date >= week_start:
+                entry["cost_week"] += usage
+                entry["requests_week"] += requests
+                entry["tokens_week"] += prompt_tok + completion_tok
+            if item_date >= month_start:
+                entry["cost_month"] += usage
+                entry["requests_month"] += requests
+                entry["tokens_month"] += prompt_tok + completion_tok
+        
+        models = sorted(by_model.values(), key=lambda x: x["cost_all"], reverse=True)
+        result = {"models": models, "totals": totals}
+    except Exception:
+        result = {"models": [], "totals": {"today": 0, "week": 0, "month": 0, "all": 0}}
+    _ACTIVITY_CACHE = (result, now)
+    return result
+
+
+@router.get("/activity")
+def get_activity(mgmt_key: str = ""):
+    return _fetch_activity(mgmt_key)

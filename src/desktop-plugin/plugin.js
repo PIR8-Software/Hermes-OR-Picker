@@ -91,7 +91,7 @@ function formatPrice(p) {
   return `$${p.toFixed(2)}`
 }
 
-function Pill({ children, color }) {
+function Pill({ children, color, title }) {
   return jsx('span', {
     className: cn(
       'text-[10px] px-1.5 py-0.5 rounded font-medium',
@@ -102,6 +102,7 @@ function Pill({ children, color }) {
       color === 'purple' && 'bg-purple-500/15 text-purple-400',
       !color && 'bg-(--chrome-background-inset) text-(--ui-text-tertiary)',
     ),
+    title,
     children
   })
 }
@@ -185,6 +186,24 @@ function ModelDetails({ m }) {
           jsx(ScoreBar, { value: m.agentic_index, label: 'Agent' }),
         ]
       }),
+      m.design_arena && m.design_arena.length > 0 && jsxs('div', {
+        className: 'pt-1 border-t border-(--ui-stroke-secondary)',
+        children: [
+          jsx('div', { className: 'text-(--ui-text-quaternary) mb-0.5', children: 'Design Arena' }),
+          ...m.design_arena.slice(0, 3).map((a, i) =>
+            jsxs('div', {
+              key: i,
+              className: 'flex items-center gap-1 text-[10px]',
+              children: [
+                jsx('span', { className: 'text-(--ui-text-quaternary) w-16 truncate', children: a.category }),
+                jsx('span', { className: 'text-(--ui-text-primary) font-mono', children: a.elo }),
+                jsx('span', { className: 'text-(--ui-text-quaternary)', children: `#${a.rank}` }),
+                jsx('span', { className: 'text-green-400', children: `${a.win_rate}%` }),
+              ]
+            }, i)
+          )
+        ]
+      }),
       jsxs('div', {
         className: 'flex flex-wrap gap-1 pt-1 border-t border-(--ui-stroke-secondary)',
         children: [
@@ -205,9 +224,11 @@ function ModelDetails({ m }) {
   })
 }
 
-function CatalogRow({ model, isSelected, onToggle }) {
+function CatalogRow({ model, isSelected, onToggle, isDefault }) {
   const [expanded, setExpanded] = useState(false)
   const m = model
+  const twoWeeksAgo = Math.floor(Date.now() / 1000) - (14 * 24 * 60 * 60)
+  const isNew = m.created_ts > twoWeeksAgo
 
   return jsxs('div', {
     className: cn(
@@ -238,10 +259,20 @@ function CatalogRow({ model, isSelected, onToggle }) {
                     title: m.id,
                     children: m.id
                   }),
-                  m.variant === 'free' && jsx(Pill, { color: 'green', children: 'FREE' }),
-                  m.variant === 'batch' && jsx(Pill, { color: 'blue', children: 'BATCH' }),
-                  m.reasoning_mandatory && jsx(Pill, { color: 'yellow', children: 'R' }),
-                  m.is_moderated && jsx(Pill, { color: 'red', children: 'M' }),
+                  isNew && jsx('span', {
+                    className: 'text-[9px] px-1 py-0 rounded font-medium',
+                    style: { backgroundColor: 'rgba(34, 197, 94, 0.2)', color: '#4ade80' },
+                    children: 'NEW'
+                  }),
+                  isDefault && jsx(Pill, { color: 'blue', title: 'Already in Hermes default OpenRouter list', children: 'DEFAULT' }),
+                  m.variant === 'free' && jsx(Pill, { color: 'green', title: 'Free tier', children: 'FREE' }),
+                  m.variant === 'batch' && jsx(Pill, { color: 'blue', title: 'Batch processing (lower cost, slower)', children: 'BATCH' }),
+                  m.reasoning_mandatory && jsx(Pill, { color: 'yellow', title: 'Reasoning always enabled', children: 'R' }),
+                  m.is_moderated && jsx(Pill, { color: 'red', title: 'Content moderated', children: 'M' }),
+                  m.has_tools && jsx(Pill, { color: 'blue', title: 'Supports tool calling', children: '🔧' }),
+                  m.has_vision && jsx(Pill, { color: 'purple', title: 'Supports vision (image input)', children: '👁' }),
+                  m.input_modalities && m.input_modalities.includes('audio') && jsx(Pill, { color: 'yellow', title: 'Supports audio input', children: '🎤' }),
+                  m.output_modalities && m.output_modalities.includes('image') && jsx(Pill, { color: 'purple', title: 'Generates images', children: '🖼' }),
                 ]
               }),
               m.name !== m.id && jsx('div', {
@@ -279,6 +310,7 @@ function CatalogRow({ model, isSelected, onToggle }) {
 }
 
 function PickerPage({ ctx }) {
+  const [view, setView] = useState('picker')
   const [catalog, setCatalog] = useState([])
   const [curatedIds, setCuratedIds] = useState(new Set())
   const [providers, setProviders] = useState([])
@@ -293,10 +325,9 @@ function PickerPage({ ctx }) {
   const [minContext, setMinContext] = useState(0)
   const [modalityFilter, setModalityFilter] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [blogPosts, setBlogPosts] = useState([])
-  const [showBlog, setShowBlog] = useState(false)
-  const [blogLoaded, setBlogLoaded] = useState(false)
   const [hasNewPosts, setHasNewPosts] = useState(true)
+  const [credits, setCredits] = useState(null)
+  const [defaultModelIds, setDefaultModelIds] = useState(new Set())
 
   const loadCurated = useCallback(async () => {
     try {
@@ -326,35 +357,37 @@ function PickerPage({ ctx }) {
   useEffect(() => { loadCatalog() }, [loadCatalog])
 
   const loadBlog = useCallback(async () => {
-    if (blogLoaded) return
     try {
-      const data = await api(ctx, 'GET', '/blog?limit=10')
+      const data = await api(ctx, 'GET', '/blog?limit=1')
       if (data && data.posts && data.posts.length > 0) {
-        setBlogPosts(data.posts)
-        // Show NEW tag if no previous view recorded, or if newest post changed
         const lastSeen = localStorage.getItem('or-picker-blog-last')
         if (!lastSeen || lastSeen !== data.posts[0].link) {
           setHasNewPosts(true)
         }
       }
-    } catch (e) {
-      // Blog endpoint may not be available yet
-    }
-    setBlogLoaded(true)
-  }, [ctx, blogLoaded])
+    } catch {}
+  }, [ctx])
 
-  useEffect(() => { if (showBlog) loadBlog() }, [showBlog, loadBlog])
   useEffect(() => { loadBlog() }, [loadBlog])
 
-  // Mark posts as seen when panel is opened
-  useEffect(() => {
-    if (showBlog && blogPosts.length > 0) {
-      try {
-        localStorage.setItem('or-picker-blog-last', blogPosts[0].link)
-        setHasNewPosts(false)
-      } catch {}
-    }
-  }, [showBlog, blogPosts])
+  const loadCredits = useCallback(async () => {
+    try {
+      const data = await api(ctx, 'GET', '/credits')
+      if (data && data.remaining != null) setCredits(data)
+    } catch {}
+  }, [ctx])
+
+  useEffect(() => { loadCredits() }, [loadCredits])
+
+  const loadDefaultModels = useCallback(async () => {
+    try {
+      const data = await api(ctx, 'GET', '/default-models')
+      if (data && data.ids) setDefaultModelIds(new Set(data.ids))
+    } catch {}
+  }, [ctx])
+
+  useEffect(() => { loadDefaultModels() }, [loadDefaultModels])
+
 
   const toggle = useCallback(async (id, name) => {
     try {
@@ -397,12 +430,48 @@ function PickerPage({ ctx }) {
       jsxs('div', {
         className: 'flex items-center justify-between px-3 py-2 border-b border-(--ui-stroke-secondary)',
         children: [
-          jsx('span', { className: 'font-medium', children: 'OpenRouter Picker' }),
+          jsxs('div', {
+            className: 'flex items-center gap-2',
+            children: [
+              jsx('span', { className: 'font-medium', children: 'OpenRouter Picker' }),
+              credits && credits.remaining != null && jsxs('span', {
+                className: 'text-[13px] font-mono font-medium',
+                style: { color: credits.remaining >= 5 ? '#4ade80' : '#f87171' },
+                children: [
+                  jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Balance: ' }),
+                  `$${credits.remaining.toFixed(2)}`
+                ]
+              })
+            ]
+          }),
           jsxs('div', {
             className: 'flex items-center gap-2',
             children: [
               loadingCatalog && jsx('span', { className: 'text-xs text-(--ui-text-quaternary)', children: '⟳' }),
-              jsx('span', { className: 'text-[13px] text-(--ui-text-tertiary)', children: `${selectedCount} selected` })
+              jsx('span', { className: 'text-[13px] text-(--ui-text-tertiary)', children: `${selectedCount} selected` }),
+              view === 'picker' && jsx('button', {
+                className: 'text-xs px-2 py-1 rounded transition-colors',
+                style: { backgroundColor: 'transparent', color: 'var(--ui-text-tertiary)' },
+                onClick: () => setView('analytics'),
+                children: '📊 Analytics'
+              }),
+              view === 'picker' && jsx('button', {
+                className: 'text-xs px-2 py-1 rounded transition-colors',
+                style: { backgroundColor: 'transparent', color: 'var(--ui-text-tertiary)' },
+                onClick: () => { setView('news'); setHasNewPosts(false) },
+                children: '📰 News'
+              }),
+              hasNewPosts && view === 'picker' && jsx('span', {
+                className: 'text-[8px] px-1 py-0 rounded font-medium',
+                style: { backgroundColor: 'rgba(34, 197, 94, 0.2)', color: '#4ade80' },
+                children: 'NEW'
+              }),
+              view !== 'picker' && jsx('button', {
+                className: 'text-xs px-2 py-1 rounded transition-colors',
+                style: { backgroundColor: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa' },
+                onClick: () => setView('picker'),
+                children: '← Picker'
+              })
             ]
           })
         ]
@@ -412,6 +481,11 @@ function PickerPage({ ctx }) {
         onClick: () => setError(''),
         children: `⚠ ${error}`
       }),
+      view === 'analytics' ? jsx(AnalyticsPage, { ctx }) :
+      view === 'news' ? jsx(BlogPage, { ctx }) :
+      jsxs('div', {
+        className: 'flex-1 flex flex-col min-h-0',
+        children: [
       jsxs('div', {
         className: 'px-3 py-2 flex flex-col gap-1.5 border-b border-(--ui-stroke-secondary)',
         children: [
@@ -503,58 +577,10 @@ function PickerPage({ ctx }) {
                 key: m.id,
                 model: m,
                 isSelected: curatedIds.has(m.id),
+                isDefault: defaultModelIds.has(m.id),
                 onToggle: toggle
               }))
             }),
-      jsx('div', {
-        className: 'border-t border-(--ui-stroke-secondary)',
-        children: [
-          jsx('button', {
-            className: 'w-full flex items-center justify-between px-3 py-1.5 text-xs text-(--ui-text-tertiary) hover:text-(--ui-text-primary) hover:bg-(--chrome-action-hover) transition-colors',
-            onClick: () => setShowBlog(!showBlog),
-            children: [
-              jsxs('span', {
-                className: 'flex items-center gap-1.5',
-                children: [
-                  jsx('span', { children: '📰 OpenRouter News' }),
-                  hasNewPosts && jsx('span', {
-                    className: 'text-[9px] px-1 py-0 rounded font-medium',
-                    style: { backgroundColor: 'rgba(34, 197, 94, 0.2)', color: '#4ade80' },
-                    children: 'NEW'
-                  })
-                ]
-              }),
-              jsx('span', { children: showBlog ? '▾' : '▸' })
-            ]
-          }),
-          showBlog && jsx('div', {
-            className: 'max-h-72 overflow-y-auto px-3 pb-2',
-            children: blogPosts.length === 0
-              ? jsx('div', { className: 'text-xs text-(--ui-text-quaternary) py-1', children: blogLoaded ? 'No posts found' : 'Loading…' })
-              : blogPosts.map((post, i) => jsx('div', {
-                  key: i,
-                  className: 'py-2 border-b border-(--ui-stroke-secondary) last:border-b-0',
-                  children: [
-                    jsx('a', {
-                      href: post.link,
-                      target: '_blank',
-                      rel: 'noopener noreferrer',
-                      className: 'text-[12px] font-medium text-(--ui-accent, #60a5fa) hover:underline leading-snug',
-                      children: post.title
-                    }),
-                    post.description && jsx('div', {
-                      className: 'text-[11px] text-(--ui-text-tertiary) leading-relaxed mt-0.5 line-clamp-3',
-                      children: post.description
-                    }),
-                    post.pubDate && jsx('div', {
-                      className: 'text-[10px] text-(--ui-text-quaternary) mt-0.5',
-                      children: post.pubDate.replace(/ \d{2}:\d{2}:\d{2} GMT/, '')
-                    })
-                  ]
-                }, i))
-          })
-        ]
-      }),
       jsx('div', {
         className: 'px-3 py-1.5 text-xs text-(--ui-text-quaternary) border-t border-(--ui-stroke-secondary) flex justify-between',
         children: [
@@ -562,7 +588,310 @@ function PickerPage({ ctx }) {
           jsx('span', { children: `${selectedCount} selected` })
         ]
       })
+        ]
+      })
     ]
+  })
+}
+
+function AnalyticsPage({ ctx }) {
+  const [analytics, setAnalytics] = useState(null)
+  const [activity, setActivity] = useState([])
+  const [activityTotals, setActivityTotals] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [mgmtKey, setMgmtKey] = useState(() => {
+    try { return localStorage.getItem('or-picker-mgmt-key') || '' } catch { return '' }
+  })
+  const [showKeyInput, setShowKeyInput] = useState(false)
+
+  const loadAnalytics = useCallback(async () => {
+    try {
+      const data = await api(ctx, 'GET', '/analytics')
+      setAnalytics(data)
+    } catch (e) { setAnalytics({ error: String(e) }) }
+  }, [ctx])
+
+  const loadActivity = useCallback(async () => {
+    try {
+      const data = await api(ctx, 'GET', '/activity' + (mgmtKey ? `?mgmt_key=${encodeURIComponent(mgmtKey)}` : ''))
+      if (data && data.models) {
+        setActivity(data.models)
+        setActivityTotals(data.totals || null)
+      }
+    } catch {}
+    setLoading(false)
+  }, [ctx, mgmtKey])
+
+  useEffect(() => { loadAnalytics(); loadActivity() }, [loadAnalytics, loadActivity])
+
+  const saveKey = useCallback(() => {
+    try { localStorage.setItem('or-picker-mgmt-key', mgmtKey) } catch {}
+    setShowKeyInput(false)
+    loadActivity()
+  }, [mgmtKey, loadActivity])
+
+  if (loading) return jsx('div', { className: 'flex items-center justify-center h-full text-(--ui-text-quaternary)', children: 'Loading analytics…' })
+  if (!analytics || analytics.error) return jsx('div', { className: 'flex items-center justify-center h-full text-red-400', children: analytics?.error || 'Failed to load' })
+
+  const fmt = (v) => v != null ? `$${v.toFixed(2)}` : '—'
+
+  return jsxs('div', {
+    className: 'flex-1 overflow-y-auto p-4 space-y-4',
+    children: [
+      // Key info
+      jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsx('div', { className: 'text-(--ui-text-quaternary) text-xs mb-2', children: 'API Key' }),
+          jsxs('div', {
+            className: 'grid grid-cols-2 gap-x-8 gap-y-2 text-sm',
+            children: [
+              jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Label' }),
+              jsx('span', { className: 'font-mono', children: analytics.label || '—' }),
+              jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Tier' }),
+              jsx('span', { children: analytics.is_free_tier ? jsx(Pill, { color: 'yellow', children: 'Free Tier' }) : jsx(Pill, { color: 'green', children: 'Paid' }) }),
+              jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'BYOK in Limit' }),
+              jsx('span', { children: analytics.include_byok_in_limit ? 'Yes' : 'No' }),
+            ]
+          }),
+        ]
+      }),
+      // Balance card
+      jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsx('div', { className: 'text-(--ui-text-quaternary) text-xs mb-2', children: 'Balance' }),
+          jsxs('div', {
+            className: 'grid grid-cols-2 gap-4',
+            children: [
+              jsxs('div', { children: [
+                jsx('div', { className: 'text-(--ui-text-quaternary) text-xs', children: 'Remaining' }),
+                jsx('div', { className: 'text-2xl font-mono font-bold', style: { color: (analytics.limit_remaining || 0) >= 5 ? '#4ade80' : '#f87171' }, children: fmt(analytics.limit_remaining) }),
+              ]}),
+              jsxs('div', { children: [
+                jsx('div', { className: 'text-(--ui-text-quaternary) text-xs', children: 'Limit' }),
+                jsx('div', { className: 'text-2xl font-mono', children: analytics.limit != null ? fmt(analytics.limit) : 'Unlimited' }),
+              ]}),
+            ]
+          }),
+          analytics.limit_reset && jsx('div', { className: 'text-xs text-(--ui-text-quaternary) mt-2', children: `Resets: ${analytics.limit_reset}` }),
+        ]
+      }),
+      // Credits usage
+      jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsx('div', { className: 'text-(--ui-text-quaternary) text-xs mb-3', children: 'OpenRouter Credits Usage' }),
+          jsxs('div', {
+            className: 'grid grid-cols-2 gap-x-8 gap-y-2 text-sm',
+            children: [
+              jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Today' }),
+              jsx('span', { className: 'font-mono text-right', children: fmt(analytics.usage_daily) }),
+              jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'This Week' }),
+              jsx('span', { className: 'font-mono text-right', children: fmt(analytics.usage_weekly) }),
+              jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'This Month' }),
+              jsx('span', { className: 'font-mono text-right', children: fmt(analytics.usage_monthly) }),
+              jsx('span', { className: 'text-(--ui-text-quaternary) border-t border-(--ui-stroke-secondary) pt-2', children: 'All Time' }),
+              jsx('span', { className: 'font-mono text-right border-t border-(--ui-stroke-secondary) pt-2', children: fmt(analytics.usage) }),
+            ]
+          }),
+        ]
+      }),
+      // BYOK usage
+      jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsxs('div', { className: 'text-(--ui-text-quaternary) text-xs mb-3', children: [
+            'BYOK Usage ',
+            jsx('span', { className: 'text-[10px]', children: '(5% platform fee)' })
+          ]}),
+          jsxs('div', {
+            className: 'grid grid-cols-2 gap-x-8 gap-y-2 text-sm',
+            children: [
+              jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Today' }),
+              jsx('span', { className: 'font-mono text-right', children: fmt(analytics.byok_usage_daily) }),
+              jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'This Week' }),
+              jsx('span', { className: 'font-mono text-right', children: fmt(analytics.byok_usage_weekly) }),
+              jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'This Month' }),
+              jsx('span', { className: 'font-mono text-right', children: fmt(analytics.byok_usage_monthly) }),
+              jsx('span', { className: 'text-(--ui-text-quaternary) border-t border-(--ui-stroke-secondary) pt-2', children: 'All Time' }),
+              jsx('span', { className: 'font-mono text-right border-t border-(--ui-stroke-secondary) pt-2', children: fmt(analytics.byok_usage) }),
+            ]
+          }),
+        ]
+      }),
+      // Activity totals
+      activityTotals && jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsx('div', { className: 'text-(--ui-text-quaternary) text-xs mb-3', children: 'Total Spend' }),
+          jsxs('div', {
+            className: 'grid grid-cols-4 gap-4 text-center',
+            children: [
+              jsxs('div', { children: [
+                jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary)', children: 'Today' }),
+                jsx('div', { className: 'font-mono text-lg font-bold', children: fmt(activityTotals.today) }),
+              ]}),
+              jsxs('div', { children: [
+                jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary)', children: 'This Week' }),
+                jsx('div', { className: 'font-mono text-lg font-bold', children: fmt(activityTotals.week) }),
+              ]}),
+              jsxs('div', { children: [
+                jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary)', children: 'This Month' }),
+                jsx('div', { className: 'font-mono text-lg font-bold', children: fmt(activityTotals.month) }),
+              ]}),
+              jsxs('div', { children: [
+                jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary)', children: 'All Time' }),
+                jsx('div', { className: 'font-mono text-lg font-bold', children: fmt(activityTotals.all) }),
+              ]}),
+            ]
+          }),
+        ]
+      }),
+      // Model usage breakdown
+      activity.length > 0 ? jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsx('div', { className: 'text-(--ui-text-quaternary) text-xs mb-3', children: 'Usage by Model' }),
+          jsxs('div', {
+            className: 'space-y-2',
+            children: activity.slice(0, 15).map((m, i) =>
+              jsxs('div', {
+                key: i,
+                className: 'py-2 border-b border-(--ui-stroke-secondary) last:border-b-0',
+                children: [
+                  jsxs('div', {
+                    className: 'flex items-center gap-2 mb-1',
+                    children: [
+                      jsx('span', { className: 'flex-1 min-w-0 truncate font-mono text-[12px]', title: m.model, children: m.model }),
+                      m.provider && jsx('span', { className: 'text-[10px] text-(--ui-text-quaternary)', children: m.provider }),
+                    ]
+                  }),
+                  jsxs('div', {
+                    className: 'grid grid-cols-4 gap-2 text-center text-[11px]',
+                    children: [
+                      jsxs('div', { children: [
+                        jsx('div', { className: 'text-[9px] text-(--ui-text-quaternary)', children: 'Today' }),
+                        jsx('div', { className: 'font-mono', children: fmt(m.cost_today) }),
+                      ]}),
+                      jsxs('div', { children: [
+                        jsx('div', { className: 'text-[9px] text-(--ui-text-quaternary)', children: 'Week' }),
+                        jsx('div', { className: 'font-mono', children: fmt(m.cost_week) }),
+                      ]}),
+                      jsxs('div', { children: [
+                        jsx('div', { className: 'text-[9px] text-(--ui-text-quaternary)', children: 'Month' }),
+                        jsx('div', { className: 'font-mono', children: fmt(m.cost_month) }),
+                      ]}),
+                      jsxs('div', { children: [
+                        jsx('div', { className: 'text-[9px] text-(--ui-text-quaternary)', children: 'All' }),
+                        jsx('div', { className: 'font-mono', children: fmt(m.cost_all) }),
+                      ]}),
+                    ]
+                  }),
+                ]
+              }, i)
+            )
+          }),
+        ]
+      }) : jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsx('div', { className: 'text-(--ui-text-quaternary) text-xs mb-2', children: 'Usage by Model' }),
+          jsx('div', { className: 'text-xs text-(--ui-text-tertiary) mb-3', children: 'Requires a management key for per-model breakdown.' }),
+          showKeyInput ? jsxs('div', {
+            className: 'flex gap-2 items-center',
+            children: [
+              jsx('input', {
+                type: 'password',
+                value: mgmtKey,
+                onChange: e => setMgmtKey(e.target.value),
+                placeholder: 'sk-or-mgmt-...',
+                className: 'flex-1 text-[12px] px-2 py-1 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary) placeholder:text-(--ui-text-quaternary)',
+                onKeyDown: e => { if (e.key === 'Enter') saveKey() }
+              }),
+              jsx('button', {
+                className: 'text-xs px-2 py-1 rounded bg-(--ui-accent) text-white',
+                onClick: saveKey,
+                children: 'Save'
+              }),
+              jsx('button', {
+                className: 'text-xs px-2 py-1 rounded text-(--ui-text-tertiary)',
+                onClick: () => setShowKeyInput(false),
+                children: 'Cancel'
+              }),
+            ]
+          }) : jsxs('div', {
+            className: 'flex gap-2 items-center justify-center',
+            children: [
+              jsx('button', {
+                className: 'text-xs px-3 py-1.5 rounded border border-(--ui-stroke-secondary) text-(--ui-text-tertiary) hover:text-(--ui-text-primary) hover:bg-(--chrome-action-hover)',
+                onClick: () => setShowKeyInput(true),
+                children: mgmtKey ? '🔑 Change Key' : '🔑 Add Management Key'
+              }),
+              jsx('a', {
+                href: 'https://openrouter.ai/settings/management-keys',
+                target: '_blank',
+                rel: 'noopener noreferrer',
+                className: 'text-xs text-(--ui-accent, #60a5fa) hover:underline',
+                children: 'Get one →'
+              }),
+            ]
+          }),
+        ]
+      }),
+    ]
+  })
+}
+
+function BlogPage({ ctx }) {
+  const [blogPosts, setBlogPosts] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  const loadBlog = useCallback(async () => {
+    try {
+      const data = await api(ctx, 'GET', '/blog?limit=15')
+      if (data && data.posts) {
+        setBlogPosts(data.posts)
+        // Mark as seen
+        if (data.posts.length > 0) {
+          try { localStorage.setItem('or-picker-blog-last', data.posts[0].link) } catch {}
+        }
+      }
+    } catch {}
+    setLoading(false)
+  }, [ctx])
+
+  useEffect(() => { loadBlog() }, [loadBlog])
+
+  if (loading) return jsx('div', { className: 'flex items-center justify-center h-full text-(--ui-text-quaternary)', children: 'Loading news…' })
+
+  return jsxs('div', {
+    className: 'flex-1 overflow-y-auto p-4 space-y-3',
+    children: blogPosts.length === 0
+      ? jsx('div', { className: 'text-(--ui-text-quaternary) text-center py-8', children: 'No posts found' })
+      : blogPosts.map((post, i) =>
+          jsxs('div', {
+            key: i,
+            className: 'rounded-lg border border-(--ui-stroke-secondary) p-4 hover:bg-(--chrome-action-hover) transition-colors',
+            children: [
+              jsx('a', {
+                href: post.link,
+                target: '_blank',
+                rel: 'noopener noreferrer',
+                className: 'text-sm font-medium text-(--ui-accent, #60a5fa) hover:underline',
+                children: post.title
+              }),
+              post.description && jsx('div', {
+                className: 'text-xs text-(--ui-text-tertiary) leading-relaxed mt-1',
+                children: post.description
+              }),
+              post.pubDate && jsx('div', {
+                className: 'text-[10px] text-(--ui-text-quaternary) mt-2',
+                children: post.pubDate.replace(/ \d{2}:\d{2}:\d{2} GMT/, '')
+              })
+            ]
+          }, i)
+        )
   })
 }
 
