@@ -6,10 +6,20 @@ Stock **OpenRouter** stays the official auto catalog. OR Picker is only your che
 
 Do **not** set `model_catalog.providers.openrouter.url` — that replaces the official OpenRouter tab.
 
+## Features
+
+- **Model Catalog** — browse 400+ OpenRouter models with filters (sort, modality, context, provider, free-only)
+- **Model Badges** — NEW (last 2 weeks), DEFAULT (in Hermes default list), FREE, BATCH, tools 🔧, vision 👁, audio 🎤, image generation 🖼
+- **Credits Balance** — live balance in header (green ≥$5, red <$5)
+- **Analytics Page** — key info, balance, credits usage, BYOK usage, per-model breakdown with time periods (today/week/month/all)
+- **News Page** — OpenRouter blog posts from RSS feed with NEW badge
+- **Design Arena** — ELO rankings and win rates in expanded model details
+
 ## Requirements
 
 - [Hermes Agent](https://hermes-agent.nousresearch.com/docs/) with the desktop app
 - An OpenRouter key already configured in Hermes (`OPENROUTER_API_KEY`)
+- (Optional) Management key for per-model analytics — create at [openrouter.ai/settings/management-keys](https://openrouter.ai/settings/management-keys)
 
 ## Install
 

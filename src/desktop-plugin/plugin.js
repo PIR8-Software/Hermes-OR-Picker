@@ -325,7 +325,7 @@ function PickerPage({ ctx }) {
   const [minContext, setMinContext] = useState(0)
   const [modalityFilter, setModalityFilter] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [hasNewPosts, setHasNewPosts] = useState(true)
+  const [hasNewPosts, setHasNewPosts] = useState(false)
   const [credits, setCredits] = useState(null)
   const [defaultModelIds, setDefaultModelIds] = useState(new Set())
 
@@ -363,6 +363,8 @@ function PickerPage({ ctx }) {
         const lastSeen = localStorage.getItem('or-picker-blog-last')
         if (!lastSeen || lastSeen !== data.posts[0].link) {
           setHasNewPosts(true)
+        } else {
+          setHasNewPosts(false)
         }
       }
     } catch {}
