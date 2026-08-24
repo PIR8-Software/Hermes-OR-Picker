@@ -333,7 +333,7 @@ function ModelDetails({ m, endpoints, onFilterChange }) {
   })
 }
 
-function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange }) {
+function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange, isComparing, onCompareToggle }) {
   const [expanded, setExpanded] = useState(false)
   const [endpoints, setEndpoints] = useState(null)
   const m = model
@@ -399,6 +399,10 @@ function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange }) 
                   m.has_vision && jsx(Pill, { color: 'purple', title: 'Supports vision (image input)', children: '👁' }),
                   m.input_modalities && m.input_modalities.includes('audio') && jsx(Pill, { color: 'yellow', title: 'Supports audio input', children: '🎤' }),
                   m.output_modalities && m.output_modalities.includes('image') && jsx(Pill, { color: 'purple', title: 'Generates images', children: '🖼' }),
+                  // Auto-categories
+                  m.has_tools && m.has_vision && jsx(Pill, { color: 'green', title: 'Good for agents (tools + vision)', children: 'agent' }),
+                  m.reasoning_enabled && jsx(Pill, { color: 'yellow', title: 'Reasoning/thinking model', children: 'reasoning' }),
+                  m.context_length >= 500000 && jsx(Pill, { color: 'blue', title: 'Long context (500K+)', children: 'long-ctx' }),
                 ]
               }),
               m.name !== m.id && jsx('div', {
@@ -427,6 +431,13 @@ function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange }) 
             className: 'text-xs text-(--ui-text-quaternary) hover:text-(--ui-text-primary) px-0.5',
             onClick: (e) => { e.stopPropagation(); handleExpand() },
             children: expanded ? '▾' : '▸'
+          }),
+          onCompareToggle && jsx('button', {
+            className: 'text-[10px] px-1 rounded transition-colors',
+            style: { backgroundColor: isComparing ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: isComparing ? '#60a5fa' : 'var(--ui-text-quaternary)' },
+            onClick: (e) => { e.stopPropagation(); onCompareToggle(m.id) },
+            title: isComparing ? 'Remove from compare' : 'Add to compare',
+            children: '⚖'
           })
         ]
       }),
@@ -437,6 +448,8 @@ function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange }) 
 
 function PickerPage({ ctx }) {
   const [view, setView] = useState('picker')
+  const [compareIds, setCompareIds] = useState(new Set())
+  const [showCompare, setShowCompare] = useState(false)
   const [catalog, setCatalog] = useState([])
   const [curatedIds, setCuratedIds] = useState(new Set())
   const [providers, setProviders] = useState([])
@@ -578,6 +591,45 @@ function PickerPage({ ctx }) {
               loadingCatalog && jsx('span', { className: 'text-xs text-(--ui-text-quaternary)', children: '⟳' }),
               jsx('span', { className: 'text-[13px] text-(--ui-text-tertiary)', children: `${selectedCount} selected` }),
               view === 'picker' && jsx('button', {
+                className: 'text-[11px] px-1.5 py-0.5 rounded text-(--ui-text-quaternary) hover:text-(--ui-text-primary) hover:bg-(--chrome-action-hover)',
+                onClick: () => {
+                  const data = JSON.stringify(Array.from(curatedIds), null, 2)
+                  const blob = new Blob([data], { type: 'application/json' })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url; a.download = 'or-picker-list.json'; a.click()
+                  URL.revokeObjectURL(url)
+                },
+                title: 'Export curated list as JSON',
+                children: '📤'
+              }),
+              view === 'picker' && jsx('button', {
+                className: 'text-[11px] px-1.5 py-0.5 rounded text-(--ui-text-quaternary) hover:text-(--ui-text-primary) hover:bg-(--chrome-action-hover)',
+                onClick: () => {
+                  const input = document.createElement('input')
+                  input.type = 'file'; input.accept = '.json'
+                  input.onchange = async (e) => {
+                    const file = e.target.files[0]
+                    if (!file) return
+                    try {
+                      const text = await file.text()
+                      const ids = JSON.parse(text)
+                      if (!Array.isArray(ids)) return
+                      for (const id of ids) {
+                        if (typeof id === 'string' && !curatedIds.has(id)) {
+                          await api(ctx, 'POST', '/models', { id, description: id })
+                        }
+                      }
+                      setCuratedIds(new Set(ids))
+                      refreshComposerPicker()
+                    } catch {}
+                  }
+                  input.click()
+                },
+                title: 'Import curated list from JSON',
+                children: '📥'
+              }),
+              view === 'picker' && jsx('button', {
                 className: 'text-xs px-2 py-1 rounded transition-colors',
                 style: { backgroundColor: 'transparent', color: 'var(--ui-text-tertiary)' },
                 onClick: () => setView('analytics'),
@@ -588,6 +640,12 @@ function PickerPage({ ctx }) {
                 style: { backgroundColor: 'transparent', color: 'var(--ui-text-tertiary)' },
                 onClick: () => { setView('news'); setHasNewPosts(false) },
                 children: '📰 News'
+              }),
+              view === 'picker' && compareIds.size >= 2 && jsx('button', {
+                className: 'text-xs px-2 py-1 rounded transition-colors',
+                style: { backgroundColor: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa' },
+                onClick: () => setShowCompare(true),
+                children: `⚖ Compare (${compareIds.size})`
               }),
               hasNewPosts && view === 'picker' && jsx('span', {
                 className: 'text-[8px] px-1 py-0 rounded font-medium',
@@ -611,6 +669,7 @@ function PickerPage({ ctx }) {
       }),
       view === 'analytics' ? jsx(AnalyticsPage, { ctx }) :
       view === 'news' ? jsx(BlogPage, { ctx }) :
+      showCompare ? jsx(CompareView, { models: catalog.filter(m => compareIds.has(m.id)), onClose: () => setShowCompare(false) }) :
       jsxs('div', {
         className: 'flex-1 flex flex-col min-h-0',
         children: [
@@ -706,7 +765,16 @@ function PickerPage({ ctx }) {
                 model: m,
                 isSelected: curatedIds.has(m.id),
                 isDefault: defaultModelIds.has(m.id),
+                isComparing: compareIds.has(m.id),
                 onToggle: toggle,
+                onCompareToggle: (id) => {
+                  setCompareIds(prev => {
+                    const next = new Set(prev)
+                    if (next.has(id)) next.delete(id)
+                    else if (next.size < 3) next.add(id)
+                    return next
+                  })
+                },
                 onFilterChange: setFilter
               }))
             }),
@@ -997,6 +1065,66 @@ function AnalyticsPage({ ctx }) {
           }),
         ]
       }),
+    ]
+  })
+}
+
+function CompareView({ models, onClose }) {
+  if (!models || models.length < 2) return null
+
+  return jsxs('div', {
+    className: 'flex-1 overflow-y-auto p-4',
+    children: [
+      jsxs('div', {
+        className: 'flex items-center justify-between mb-4',
+        children: [
+          jsx('span', { className: 'font-medium', children: `Comparing ${models.length} Models` }),
+          jsx('button', {
+            className: 'text-xs px-2 py-1 rounded text-(--ui-text-tertiary) hover:text-(--ui-text-primary)',
+            onClick: onClose,
+            children: '✕ Close'
+          })
+        ]
+      }),
+      jsx('div', {
+        className: 'overflow-x-auto',
+        children: jsxs('div', {
+          className: 'grid gap-4',
+          style: { gridTemplateColumns: `repeat(${models.length}, minmax(200px, 1fr))` },
+          children: [
+            // Headers
+            ...models.map((m, i) =>
+              jsx('div', {
+                key: i,
+                className: 'text-center font-mono text-[13px] font-medium pb-2 border-b border-(--ui-stroke-secondary)',
+                children: m.id
+              }, i)
+            ),
+            // Rows
+            ...[
+              { label: 'Name', get: m => m.name },
+              { label: 'Input /M', get: m => m.prompt_price ? `$${m.prompt_price.toFixed(2)}` : '—' },
+              { label: 'Output /M', get: m => m.completion_price ? `$${m.completion_price.toFixed(2)}` : '—' },
+              { label: 'Context', get: m => m.context_length >= 1000000 ? `${(m.context_length/1000000).toFixed(1)}M` : m.context_length >= 1024 ? `${Math.round(m.context_length/1024)}K` : String(m.context_length) },
+              { label: 'Max Output', get: m => m.max_completion_tokens ? (m.max_completion_tokens >= 1000000 ? `${(m.max_completion_tokens/1000000).toFixed(1)}M` : `${Math.round(m.max_completion_tokens/1024)}K`) : '—' },
+              { label: 'Tools', get: m => m.has_tools ? '✅' : '❌' },
+              { label: 'Vision', get: m => m.has_vision ? '✅' : '❌' },
+              { label: 'Reasoning', get: m => m.reasoning_enabled ? '✅' : '❌' },
+              { label: 'Intelligence', get: m => m.intelligence_index != null ? m.intelligence_index : '—' },
+              { label: 'Coding', get: m => m.coding_index != null ? m.coding_index : '—' },
+              { label: 'Agentic', get: m => m.agentic_index != null ? m.agentic_index : '—' },
+            ].map((row, ri) =>
+              models.map((m, ci) =>
+                jsx('div', {
+                  key: `${ri}-${ci}`,
+                  className: 'text-xs text-center py-1 border-b border-(--ui-stroke-secondary)',
+                  children: ri === 0 ? jsx('span', { className: 'text-(--ui-text-quaternary)', children: row.label }) : row.get(m)
+                })
+              )
+            )
+          ]
+        })
+      })
     ]
   })
 }
