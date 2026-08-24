@@ -180,7 +180,7 @@ def _enrich_model(m: dict, curated_ids: set[str]) -> dict[str, Any]:
         # ── Identity ──
         "id": mid,
         "name": m.get("name", mid),
-        "description": (m.get("description") or "")[:500],
+        "description": m.get("description") or "",
         "canonical_slug": m.get("canonical_slug", ""),
         "huggingface_id": m.get("hugging_face_id"),
         "provider": provider,
