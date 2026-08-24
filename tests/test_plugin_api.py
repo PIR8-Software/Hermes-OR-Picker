@@ -132,5 +132,5 @@ class TestEnrich:
         assert out["has_tools"] is True
         assert out["has_vision"] is True
         assert out["is_moderated"] is True
-        assert len(out["description"]) == 500
+        assert len(out["description"]) == 600
         assert out["created"] == "2023-11-14"

@@ -26,7 +26,7 @@ Do **not** set `model_catalog.providers.openrouter.url` — that replaces the of
 **Linux / macOS (gateway host):**
 
 ```bash
-git clone https://github.com/croycrabtree/Hermes-OR-Picker.git
+git clone https://github.com/PIR8-Software/Hermes-OR-Picker.git
 cd Hermes-OR-Picker
 ./install.sh
 hermes plugins enable openrouter-picker --no-allow-tool-override
@@ -35,7 +35,7 @@ hermes plugins enable openrouter-picker --no-allow-tool-override
 **Windows (desktop app):**
 
 ```powershell
-git clone https://github.com/croycrabtree/Hermes-OR-Picker.git
+git clone https://github.com/PIR8-Software/Hermes-OR-Picker.git
 cd Hermes-OR-Picker
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
