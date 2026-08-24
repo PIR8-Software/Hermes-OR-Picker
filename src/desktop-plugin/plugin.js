@@ -284,9 +284,9 @@ function ModelDetails({ m, endpoints }) {
         className: 'text-[10px] text-(--ui-text-quaternary) pt-1 border-t border-(--ui-stroke-secondary)',
         children: jsx('a', {
           href: '#',
-          onClick: (e) => { e.preventDefault(); e.stopPropagation() },
+          onClick: (e) => { e.preventDefault(); e.stopPropagation(); if (onFilterChange) onFilterChange(m.id + ':batch') },
           className: 'text-(--ui-accent, #60a5fa) hover:underline',
-          children: 'Check for :batch variant (lower cost, slower)'
+          children: `Search for ${m.id}:batch →`
         })
       }),
       // Provider health
@@ -294,13 +294,17 @@ function ModelDetails({ m, endpoints }) {
         className: 'pt-1 border-t border-(--ui-stroke-secondary)',
         children: [
           jsx('div', { className: 'text-(--ui-text-quaternary) mb-1', children: 'Provider Health' }),
-          ...endpoints.slice(0, 3).map((ep, i) =>
-            jsxs('div', {
+          ...endpoints.slice(0, 3).map((ep, i) => {
+            const hasUptime = ep.uptime_last_30m != null
+            const hasLatency = ep.latency_last_30m != null
+            const hasThroughput = ep.throughput_last_30m != null
+            if (!hasUptime && !hasLatency && !hasThroughput) return null
+            return jsxs('div', {
               key: i,
               className: 'flex items-center gap-2 text-[10px] mb-0.5',
               children: [
                 jsx('span', { className: 'text-(--ui-text-quaternary) w-20 truncate', children: ep.provider_name || 'Unknown' }),
-                ep.uptime_last_30m != null && jsxs('span', {
+                hasUptime && jsxs('span', {
                   className: 'flex items-center gap-1',
                   children: [
                     jsx('span', {
@@ -310,24 +314,24 @@ function ModelDetails({ m, endpoints }) {
                     jsx('span', { className: 'font-mono', children: `${ep.uptime_last_30m.toFixed(1)}%` }),
                   ]
                 }),
-                ep.latency_last_30m != null && jsx('span', {
+                hasLatency && jsx('span', {
                   className: 'text-(--ui-text-quaternary)',
                   children: `${Math.round(ep.latency_last_30m)}ms`
                 }),
-                ep.throughput_last_30m != null && jsx('span', {
+                hasThroughput && jsx('span', {
                   className: 'text-(--ui-text-quaternary)',
                   children: `${Math.round(ep.throughput_last_30m)} t/s`
                 }),
               ]
-            }, i)
-          )
+            })
+          }).filter(Boolean)
         ]
       }),
     ]
   })
 }
 
-function CatalogRow({ model, isSelected, onToggle, isDefault }) {
+function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange }) {
   const [expanded, setExpanded] = useState(false)
   const [endpoints, setEndpoints] = useState(null)
   const m = model
@@ -700,7 +704,8 @@ function PickerPage({ ctx }) {
                 model: m,
                 isSelected: curatedIds.has(m.id),
                 isDefault: defaultModelIds.has(m.id),
-                onToggle: toggle
+                onToggle: toggle,
+                onFilterChange: setFilter
               }))
             }),
       jsx('div', {
