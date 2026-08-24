@@ -33,9 +33,10 @@ except Exception:
 router = APIRouter()
 
 MODELS_PATH = Path(os.environ.get(
-    "OPENROUTER_PICKER_MODELS",
+    "OPENROUTER_MODELS_PATH",
     str(Path.home() / ".hermes" / "openrouter-supplemental-models.json"),
 ))
+CHANGELOG_PATH = Path.home() / ".hermes" / "openrouter-picker-changelog.json"
 
 OPENROUTER_API = "https://openrouter.ai/api/v1/models"
 OPENROUTER_BLOG_FEED = "https://openrouter.ai/blog/feed.xml"
@@ -698,3 +699,159 @@ def _fetch_activity(mgmt_key: str = "") -> list:
 @router.get("/activity")
 def get_activity(mgmt_key: str = ""):
     return _fetch_activity(mgmt_key)
+
+
+# ── GET /changelog ─────────────────────────────────────────────────
+@router.get("/changelog")
+def get_changelog():
+    """Compare current catalog against saved snapshot, return changes."""
+    try:
+        # Load previous snapshot
+        snapshot = {}
+        if CHANGELOG_PATH.exists():
+            with open(CHANGELOG_PATH) as f:
+                snapshot = json.load(f)
+        
+        # Get current catalog (just id, name, prices)
+        catalog = _fetch_catalog()
+        current = {}
+        for m in catalog:
+            current[m["id"]] = {
+                "name": m.get("name", ""),
+                "prompt_price": m.get("prompt_price", 0),
+                "completion_price": m.get("completion_price", 0),
+            }
+        
+        # Find changes
+        added = []
+        removed = []
+        price_changed = []
+        
+        for mid, mdata in current.items():
+            if mid not in snapshot:
+                added.append({"id": mid, "name": mdata["name"]})
+            else:
+                old = snapshot[mid]
+                if (old.get("prompt_price") != mdata["prompt_price"] or 
+                    old.get("completion_price") != mdata["completion_price"]):
+                    price_changed.append({
+                        "id": mid,
+                        "name": mdata["name"],
+                        "old_prompt": old.get("prompt_price", 0),
+                        "new_prompt": mdata["prompt_price"],
+                        "old_completion": old.get("completion_price", 0),
+                        "new_completion": mdata["completion_price"],
+                    })
+        
+        for mid, mdata in snapshot.items():
+            if mid not in current:
+                removed.append({"id": mid, "name": mdata.get("name", "")})
+        
+        # Save new snapshot
+        with open(CHANGELOG_PATH, "w") as f:
+            json.dump(current, f)
+        
+        return {
+            "added": added,
+            "removed": removed,
+            "price_changed": price_changed,
+            "total_added": len(added),
+            "total_removed": len(removed),
+            "total_price_changed": len(price_changed),
+            "snapshot_size": len(current),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── POST /test ─────────────────────────────────────────────────────
+@router.post("/test")
+def test_model(body: dict):
+    """Send a test prompt to a model."""
+    model_id = body.get("model", "")
+    prompt = body.get("prompt", "Say hello in one sentence.")
+    if not model_id:
+        return {"error": "No model specified"}
+    key = _get_openrouter_key()
+    if not key:
+        return {"error": "No OpenRouter API key configured"}
+    try:
+        import httpx
+        resp = httpx.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={"model": model_id, "messages": [{"role": "user", "content": prompt}], "max_tokens": 100},
+            timeout=30,
+        )
+        data = resp.json()
+        if "choices" in data and data["choices"]:
+            return {"response": data["choices"][0]["message"]["content"], "usage": data.get("usage", {})}
+        elif "error" in data:
+            return {"error": data["error"].get("message", str(data["error"]))}
+        else:
+            return {"error": "Unexpected response", "raw": data}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── GET /price-alerts ──────────────────────────────────────────────
+PRICE_ALERTS_PATH = Path.home() / ".hermes" / "openrouter-picker-price-alerts.json"
+
+@router.get("/price-alerts")
+def get_price_alerts():
+    """Check for price drops in curated models."""
+    try:
+        # Load previous prices
+        prev_prices = {}
+        if PRICE_ALERTS_PATH.exists():
+            with open(PRICE_ALERTS_PATH) as f:
+                prev_prices = json.load(f)
+        
+        # Get curated models
+        curated = _read_models()
+        curated_ids = set(m["id"] for m in curated)
+        
+        # Get current catalog
+        catalog = _fetch_catalog()
+        
+        # Check for price changes in curated models
+        alerts = []
+        current_prices = {}
+        
+        for m in catalog:
+            mid = m["id"]
+            current_prices[mid] = {
+                "prompt_price": m.get("prompt_price", 0),
+                "completion_price": m.get("completion_price", 0),
+            }
+            
+            if mid in curated_ids and mid in prev_prices:
+                old = prev_prices[mid]
+                new_prompt = m.get("prompt_price", 0)
+                new_comp = m.get("completion_price", 0)
+                old_prompt = old.get("prompt_price", 0)
+                old_comp = old.get("completion_price", 0)
+                
+                if new_prompt < old_prompt or new_comp < old_comp:
+                    alerts.append({
+                        "id": mid,
+                        "name": m.get("name", ""),
+                        "old_prompt": old_prompt,
+                        "new_prompt": new_prompt,
+                        "old_completion": old_comp,
+                        "new_completion": new_comp,
+                        "prompt_drop": old_prompt - new_prompt,
+                        "completion_drop": old_comp - new_comp,
+                    })
+        
+        # Save current prices
+        with open(PRICE_ALERTS_PATH, "w") as f:
+            json.dump(current_prices, f)
+        
+        return {
+            "alerts": alerts,
+            "total_alerts": len(alerts),
+            "tracked_models": len(curated_ids),
+        }
+    except Exception as e:
+        return {"error": str(e)}

@@ -161,7 +161,60 @@ function CostCalculator({ promptPrice, completionPrice }) {
   })
 }
 
-function ModelDetails({ m, endpoints, onFilterChange }) {
+function QuickTest({ modelId, ctx }) {
+  const [prompt, setPrompt] = useState('Say hello in one sentence.')
+  const [response, setResponse] = useState('')
+  const [testing, setTesting] = useState(false)
+
+  const runTest = useCallback(async () => {
+    setTesting(true)
+    setResponse('')
+    try {
+      const data = await api(ctx, 'POST', '/test', { model: modelId, prompt })
+      if (data.response) {
+        setResponse(data.response)
+      } else if (data.error) {
+        setResponse(`Error: ${data.error}`)
+      }
+    } catch (e) {
+      setResponse(`Error: ${e.message}`)
+    }
+    setTesting(false)
+  }, [ctx, modelId, prompt])
+
+  return jsxs('div', {
+    className: 'pt-1 border-t border-(--ui-stroke-secondary)',
+    children: [
+      jsx('div', { className: 'text-(--ui-text-quaternary) mb-1', children: 'Quick Test' }),
+      jsxs('div', {
+        className: 'flex gap-1',
+        children: [
+          jsx('input', {
+            type: 'text',
+            value: prompt,
+            onChange: e => setPrompt(e.target.value),
+            onKeyDown: e => { if (e.key === 'Enter') runTest() },
+            placeholder: 'Test prompt…',
+            className: 'flex-1 text-[11px] px-2 py-1 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary)',
+            disabled: testing
+          }),
+          jsx('button', {
+            className: 'text-[11px] px-2 py-1 rounded bg-(--ui-accent) text-white',
+            onClick: runTest,
+            disabled: testing,
+            children: testing ? '⟳' : '▶'
+          })
+        ]
+      }),
+      response && jsx('div', {
+        className: 'mt-1 text-[11px] text-(--ui-text-tertiary) p-2 rounded border border-(--ui-stroke-secondary) max-h-24 overflow-y-auto',
+        children: response
+      })
+    ]
+  })
+}
+
+function ModelDetails({ m, endpoints, onFilterChange, ctx }) {
   const pp = formatPrice(m.prompt_price)
   const cp = formatPrice(m.completion_price)
   const cacheR = formatPrice(m.cache_read_price)
@@ -280,6 +333,8 @@ function ModelDetails({ m, endpoints, onFilterChange }) {
       }),
       // Cost calculator
       (m.prompt_price > 0 || m.completion_price > 0) && jsx(CostCalculator, { promptPrice: m.prompt_price, completionPrice: m.completion_price }),
+      // Quick test
+      jsx(QuickTest, { modelId: m.id, ctx }),
       // Batch variant note
       !m.variant && m.id && !m.id.endsWith(':batch') && jsx('div', {
         className: 'text-[10px] text-(--ui-text-quaternary) pt-1 border-t border-(--ui-stroke-secondary)',
@@ -333,7 +388,7 @@ function ModelDetails({ m, endpoints, onFilterChange }) {
   })
 }
 
-function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange, isComparing, onCompareToggle }) {
+function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange, isComparing, onCompareToggle, ctx }) {
   const [expanded, setExpanded] = useState(false)
   const [endpoints, setEndpoints] = useState(null)
   const m = model
@@ -441,7 +496,7 @@ function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange, is
           })
         ]
       }),
-      expanded && jsx(ModelDetails, { m, endpoints, onFilterChange })
+      expanded && jsx(ModelDetails, { m, endpoints, onFilterChange, ctx })
     ]
   }, m.id)
 }
@@ -641,6 +696,12 @@ function PickerPage({ ctx }) {
                 onClick: () => { setView('news'); setHasNewPosts(false) },
                 children: '📰 News'
               }),
+              view === 'picker' && jsx('button', {
+                className: 'text-xs px-2 py-1 rounded transition-colors',
+                style: { backgroundColor: 'transparent', color: 'var(--ui-text-tertiary)' },
+                onClick: () => setView('changelog'),
+                children: '📋 Changelog'
+              }),
               view === 'picker' && compareIds.size >= 2 && jsx('button', {
                 className: 'text-xs px-2 py-1 rounded transition-colors',
                 style: { backgroundColor: 'rgba(59, 130, 246, 0.2)', color: '#60a5fa' },
@@ -669,6 +730,7 @@ function PickerPage({ ctx }) {
       }),
       view === 'analytics' ? jsx(AnalyticsPage, { ctx }) :
       view === 'news' ? jsx(BlogPage, { ctx }) :
+      view === 'changelog' ? jsx(ChangelogView, { ctx, onClose: () => setView('picker') }) :
       showCompare ? jsx(CompareView, { models: catalog.filter(m => compareIds.has(m.id)), onClose: () => setShowCompare(false) }) :
       jsxs('div', {
         className: 'flex-1 flex flex-col min-h-0',
@@ -775,7 +837,8 @@ function PickerPage({ ctx }) {
                     return next
                   })
                 },
-                onFilterChange: setFilter
+                onFilterChange: setFilter,
+                ctx
               }))
             }),
       jsx('div', {
@@ -796,6 +859,7 @@ function AnalyticsPage({ ctx }) {
   const [credits, setCredits] = useState(null)
   const [activity, setActivity] = useState([])
   const [activityTotals, setActivityTotals] = useState(null)
+  const [priceAlerts, setPriceAlerts] = useState(null)
   const [loading, setLoading] = useState(true)
   const [mgmtKey, setMgmtKey] = useState(() => {
     try { return localStorage.getItem('or-picker-mgmt-key') || '' } catch { return '' }
@@ -827,7 +891,14 @@ function AnalyticsPage({ ctx }) {
     setLoading(false)
   }, [ctx, mgmtKey])
 
-  useEffect(() => { loadAnalytics(); loadCredits(); loadActivity() }, [loadAnalytics, loadCredits, loadActivity])
+  const loadPriceAlerts = useCallback(async () => {
+    try {
+      const data = await api(ctx, 'GET', '/price-alerts')
+      if (data && !data.error) setPriceAlerts(data)
+    } catch {}
+  }, [ctx])
+
+  useEffect(() => { loadAnalytics(); loadCredits(); loadActivity(); loadPriceAlerts() }, [loadAnalytics, loadCredits, loadActivity, loadPriceAlerts])
 
   const saveKey = useCallback(() => {
     try { localStorage.setItem('or-picker-mgmt-key', mgmtKey) } catch {}
@@ -974,6 +1045,45 @@ function AnalyticsPage({ ctx }) {
           }),
         ]
       }),
+      // Usage forecast
+      activityTotals && jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsx('div', { className: 'text-(--ui-text-quaternary) text-xs mb-3', children: 'Monthly Forecast' }),
+          jsxs('div', {
+            className: 'grid grid-cols-2 gap-4 text-center',
+            children: [
+              jsxs('div', { children: [
+                jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary)', children: 'Based on daily avg' }),
+                jsx('div', { className: 'font-mono text-lg font-bold text-blue-400', children: fmt(activityTotals.today * 30) }),
+              ]}),
+              jsxs('div', { children: [
+                jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary)', children: 'Based on weekly avg' }),
+                jsx('div', { className: 'font-mono text-lg font-bold text-blue-400', children: fmt(activityTotals.week * (30/7)) }),
+              ]}),
+            ]
+          }),
+          jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary) mt-2 text-center', children: 'Projections based on current period averages' }),
+        ]
+      }),
+      // Price drop alerts
+      priceAlerts && priceAlerts.total_alerts > 0 && jsxs('div', {
+        className: 'rounded-lg border border-green-500/30 p-4',
+        children: [
+          jsx('div', { className: 'text-green-400 text-xs mb-3', children: `💰 ${priceAlerts.total_alerts} Price Drop${priceAlerts.total_alerts > 1 ? 's' : ''} in Your Models!` }),
+          ...priceAlerts.alerts.map((a, i) =>
+            jsxs('div', {
+              key: i,
+              className: 'text-xs py-1 border-b border-(--ui-stroke-secondary) last:border-b-0',
+              children: [
+                jsx('div', { className: 'font-mono', children: a.id }),
+                a.prompt_drop > 0 && jsx('div', { className: 'text-green-400', children: `Input: $${a.old_prompt.toFixed(2)} → $${a.new_prompt.toFixed(2)} (−$${a.prompt_drop.toFixed(2)})` }),
+                a.completion_drop > 0 && jsx('div', { className: 'text-green-400', children: `Output: $${a.old_completion.toFixed(2)} → $${a.new_completion.toFixed(2)} (−$${a.completion_drop.toFixed(2)})` }),
+              ]
+            })
+          )
+        ]
+      }),
       // Model usage breakdown
       activity.length > 0 ? jsxs('div', {
         className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
@@ -1065,6 +1175,87 @@ function AnalyticsPage({ ctx }) {
           }),
         ]
       }),
+    ]
+  })
+}
+
+function ChangelogView({ ctx, onClose }) {
+  const [changelog, setChangelog] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  const loadChangelog = useCallback(async () => {
+    try {
+      const data = await api(ctx, 'GET', '/changelog')
+      setChangelog(data)
+    } catch {}
+    setLoading(false)
+  }, [ctx])
+
+  useEffect(() => { loadChangelog() }, [loadChangelog])
+
+  if (loading) return jsx('div', { className: 'flex items-center justify-center h-full text-(--ui-text-quaternary)', children: 'Loading changelog…' })
+
+  const hasChanges = changelog && (changelog.total_added > 0 || changelog.total_removed > 0 || changelog.total_price_changed > 0)
+
+  return jsxs('div', {
+    className: 'flex-1 overflow-y-auto p-4 space-y-4',
+    children: [
+      jsxs('div', {
+        className: 'flex items-center justify-between',
+        children: [
+          jsx('span', { className: 'font-medium', children: 'Model Changelog' }),
+          jsx('button', {
+            className: 'text-xs px-2 py-1 rounded text-(--ui-text-tertiary) hover:text-(--ui-text-primary)',
+            onClick: onClose,
+            children: '✕ Close'
+          })
+        ]
+      }),
+      !hasChanges && jsx('div', {
+        className: 'text-(--ui-text-quaternary) text-center py-8',
+        children: 'No changes since last check. This will track new models, removed models, and price changes.'
+      }),
+      // Added models
+      changelog && changelog.total_added > 0 && jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsx('div', { className: 'text-green-400 text-xs mb-2', children: `+ ${changelog.total_added} New Models` }),
+          ...changelog.added.slice(0, 20).map((m, i) =>
+            jsx('div', { key: i, className: 'text-xs py-0.5', children: `${m.id} — ${m.name}` })
+          ),
+          changelog.total_added > 20 && jsx('div', { className: 'text-xs text-(--ui-text-quaternary) mt-1', children: `…and ${changelog.total_added - 20} more` })
+        ]
+      }),
+      // Removed models
+      changelog && changelog.total_removed > 0 && jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsx('div', { className: 'text-red-400 text-xs mb-2', children: `− ${changelog.total_removed} Removed Models` }),
+          ...changelog.removed.slice(0, 20).map((m, i) =>
+            jsx('div', { key: i, className: 'text-xs py-0.5', children: `${m.id} — ${m.name}` })
+          )
+        ]
+      }),
+      // Price changes
+      changelog && changelog.total_price_changed > 0 && jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsx('div', { className: 'text-yellow-400 text-xs mb-2', children: `~ ${changelog.total_price_changed} Price Changes` }),
+          ...changelog.price_changed.slice(0, 20).map((m, i) => {
+            const promptDir = m.new_prompt > m.old_prompt ? '↑' : m.new_prompt < m.old_prompt ? '↓' : ''
+            const compDir = m.new_completion > m.old_completion ? '↑' : m.new_completion < m.old_completion ? '↓' : ''
+            return jsx('div', {
+              key: i,
+              className: 'text-xs py-0.5',
+              children: `${m.id}: in $${m.old_prompt.toFixed(2)}→$${m.new_prompt.toFixed(2)}${promptDir}  out $${m.old_completion.toFixed(2)}→$${m.new_completion.toFixed(2)}${compDir}`
+            })
+          })
+        ]
+      }),
+      changelog && jsx('div', {
+        className: 'text-[10px] text-(--ui-text-quaternary) text-center',
+        children: `Snapshot: ${changelog.snapshot_size} models tracked`
+      })
     ]
   })
 }
