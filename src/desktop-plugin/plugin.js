@@ -216,10 +216,11 @@ function ModelDetails({ m, endpoints }) {
             children: [
               jsx('span', { className: 'text-(--ui-text-primary) font-mono', children: formatCtx(m.context_length) }),
               jsx('div', {
-                className: 'mt-0.5 h-1 rounded bg-(--chrome-background-inset) overflow-hidden',
+                className: 'mt-1 h-1.5 rounded overflow-hidden',
+                style: { backgroundColor: 'rgba(255,255,255,0.1)' },
                 children: jsx('div', {
-                  className: 'h-full rounded bg-blue-500',
-                  style: { width: `${Math.min(100, (m.context_length / 2000000) * 100)}%` }
+                  className: 'h-full rounded',
+                  style: { width: `${Math.min(100, (m.context_length / 2000000) * 100)}%`, backgroundColor: '#3b82f6' }
                 })
               })
             ]
