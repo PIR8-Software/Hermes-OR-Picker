@@ -833,7 +833,7 @@ function PickerPage({ ctx }) {
                   setCompareIds(prev => {
                     const next = new Set(prev)
                     if (next.has(id)) next.delete(id)
-                    else if (next.size < 3) next.add(id)
+                    else if (next.size < 5) next.add(id)
                     return next
                   })
                 },
@@ -1021,7 +1021,40 @@ function AnalyticsPage({ ctx }) {
       activityTotals && jsxs('div', {
         className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
         children: [
-          jsx('div', { className: 'text-(--ui-text-quaternary) text-xs mb-3', children: 'Total Spend' }),
+          jsxs('div', {
+            className: 'flex items-center justify-between mb-3',
+            children: [
+              jsx('span', { className: 'text-(--ui-text-quaternary) text-xs', children: 'Total Spend' }),
+              jsx('button', {
+                className: 'text-[10px] px-1.5 py-0.5 rounded text-(--ui-text-quaternary) hover:text-(--ui-text-primary) hover:bg-(--chrome-action-hover)',
+                onClick: () => setShowKeyInput(!showKeyInput),
+                children: '🔑 Change Key'
+              })
+            ]
+          }),
+          showKeyInput && jsxs('div', {
+            className: 'flex gap-2 items-center mb-3',
+            children: [
+              jsx('input', {
+                type: 'password',
+                value: mgmtKey,
+                onChange: e => setMgmtKey(e.target.value),
+                placeholder: 'sk-or-mgmt-...',
+                className: 'flex-1 text-[12px] px-2 py-1 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary) placeholder:text-(--ui-text-quaternary)',
+                onKeyDown: e => { if (e.key === 'Enter') saveKey() }
+              }),
+              jsx('button', {
+                className: 'text-xs px-2 py-1 rounded bg-(--ui-accent) text-white',
+                onClick: saveKey,
+                children: 'Save'
+              }),
+              jsx('button', {
+                className: 'text-xs px-2 py-1 rounded text-(--ui-text-tertiary)',
+                onClick: () => setShowKeyInput(false),
+                children: 'Cancel'
+              }),
+            ]
+          }),
           jsxs('div', {
             className: 'grid grid-cols-4 gap-4 text-center',
             children: [
@@ -1300,6 +1333,25 @@ function ChangelogView({ ctx, onClose }) {
 function CompareView({ models, onClose }) {
   if (!models || models.length < 2) return null
 
+  const rows = [
+    { label: 'Name', get: m => m.name },
+    { label: 'Input /M', get: m => m.prompt_price ? `$${m.prompt_price.toFixed(2)}` : '—' },
+    { label: 'Output /M', get: m => m.completion_price ? `$${m.completion_price.toFixed(2)}` : '—' },
+    { label: 'Context', get: m => m.context_length >= 1000000 ? `${(m.context_length/1000000).toFixed(1)}M` : m.context_length >= 1024 ? `${Math.round(m.context_length/1024)}K` : String(m.context_length) },
+    { label: 'Max Output', get: m => m.max_completion_tokens ? (m.max_completion_tokens >= 1000000 ? `${(m.max_completion_tokens/1000000).toFixed(1)}M` : `${Math.round(m.max_completion_tokens/1024)}K`) : '—' },
+    { label: 'Tools', get: m => m.has_tools ? '✅' : '❌' },
+    { label: 'Vision', get: m => m.has_vision ? '✅' : '❌' },
+    { label: 'Reasoning', get: m => m.reasoning_enabled ? '✅' : '❌' },
+    { label: 'Intelligence', get: m => m.intelligence_index != null ? m.intelligence_index.toFixed(0) : '—' },
+    { label: 'Coding', get: m => m.coding_index != null ? m.coding_index.toFixed(0) : '—' },
+    { label: 'Agentic', get: m => m.agentic_index != null ? m.agentic_index.toFixed(0) : '—' },
+    { label: 'Provider', get: m => m.provider || '—' },
+    { label: 'Batch', get: m => m.variant === 'batch' ? '✅' : '❌' },
+    { label: 'Moderated', get: m => m.is_moderated ? '✅' : '❌' },
+  ]
+
+  const cols = models.length + 1
+
   return jsxs('div', {
     className: 'flex-1 overflow-y-auto p-4',
     children: [
@@ -1316,40 +1368,42 @@ function CompareView({ models, onClose }) {
       }),
       jsx('div', {
         className: 'overflow-x-auto',
-        children: jsxs('div', {
-          className: 'grid gap-4',
-          style: { gridTemplateColumns: `repeat(${models.length}, minmax(200px, 1fr))` },
+        children: jsx('table', {
+          className: 'w-full text-xs border-collapse',
           children: [
-            // Headers
-            ...models.map((m, i) =>
-              jsx('div', {
-                key: i,
-                className: 'text-center font-mono text-[13px] font-medium pb-2 border-b border-(--ui-stroke-secondary)',
-                children: m.id
-              }, i)
-            ),
-            // Rows
-            ...[
-              { label: 'Name', get: m => m.name },
-              { label: 'Input /M', get: m => m.prompt_price ? `$${m.prompt_price.toFixed(2)}` : '—' },
-              { label: 'Output /M', get: m => m.completion_price ? `$${m.completion_price.toFixed(2)}` : '—' },
-              { label: 'Context', get: m => m.context_length >= 1000000 ? `${(m.context_length/1000000).toFixed(1)}M` : m.context_length >= 1024 ? `${Math.round(m.context_length/1024)}K` : String(m.context_length) },
-              { label: 'Max Output', get: m => m.max_completion_tokens ? (m.max_completion_tokens >= 1000000 ? `${(m.max_completion_tokens/1000000).toFixed(1)}M` : `${Math.round(m.max_completion_tokens/1024)}K`) : '—' },
-              { label: 'Tools', get: m => m.has_tools ? '✅' : '❌' },
-              { label: 'Vision', get: m => m.has_vision ? '✅' : '❌' },
-              { label: 'Reasoning', get: m => m.reasoning_enabled ? '✅' : '❌' },
-              { label: 'Intelligence', get: m => m.intelligence_index != null ? m.intelligence_index : '—' },
-              { label: 'Coding', get: m => m.coding_index != null ? m.coding_index : '—' },
-              { label: 'Agentic', get: m => m.agentic_index != null ? m.agentic_index : '—' },
-            ].map((row, ri) =>
-              models.map((m, ci) =>
-                jsx('div', {
-                  key: `${ri}-${ci}`,
-                  className: 'text-xs text-center py-1 border-b border-(--ui-stroke-secondary)',
-                  children: ri === 0 ? jsx('span', { className: 'text-(--ui-text-quaternary)', children: row.label }) : row.get(m)
+            jsx('thead', {
+              children: jsx('tr', {
+                children: [
+                  jsx('th', { className: 'text-left py-1.5 px-2 text-(--ui-text-quaternary) border-b border-(--ui-stroke-secondary) w-24', children: '' }),
+                  ...models.map((m, i) =>
+                    jsx('th', {
+                      key: i,
+                      className: 'text-center py-1.5 px-2 font-mono font-medium text-[12px] border-b border-(--ui-stroke-secondary) truncate max-w-[180px]',
+                      title: m.id,
+                      children: m.id.length > 30 ? m.id.slice(-30) : m.id
+                    })
+                  )
+                ]
+              })
+            }),
+            jsx('tbody', {
+              children: rows.map((row, ri) =>
+                jsx('tr', {
+                  key: ri,
+                  className: ri % 2 === 0 ? 'bg-(--chrome-background)' : '',
+                  children: [
+                    jsx('td', { className: 'py-1.5 px-2 text-(--ui-text-quaternary) font-medium whitespace-nowrap', children: row.label }),
+                    ...models.map((m, ci) =>
+                      jsx('td', {
+                        key: ci,
+                        className: 'py-1.5 px-2 text-center font-mono',
+                        children: row.get(m)
+                      })
+                    )
+                  ]
                 })
               )
-            )
+            })
           ]
         })
       })
