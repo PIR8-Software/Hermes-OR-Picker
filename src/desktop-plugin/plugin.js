@@ -161,7 +161,7 @@ function CostCalculator({ promptPrice, completionPrice }) {
   })
 }
 
-function ModelDetails({ m, endpoints }) {
+function ModelDetails({ m, endpoints, onFilterChange }) {
   const pp = formatPrice(m.prompt_price)
   const cp = formatPrice(m.completion_price)
   const cacheR = formatPrice(m.cache_read_price)
@@ -430,7 +430,7 @@ function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange }) 
           })
         ]
       }),
-      expanded && jsx(ModelDetails, { m, endpoints })
+      expanded && jsx(ModelDetails, { m, endpoints, onFilterChange })
     ]
   }, m.id)
 }
