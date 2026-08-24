@@ -124,7 +124,44 @@ function ScoreBar({ value, max = 100, label }) {
   })
 }
 
-function ModelDetails({ m }) {
+function CostCalculator({ promptPrice, completionPrice }) {
+  const [inputTokens, setInputTokens] = useState(1000)
+  const [outputTokens, setOutputTokens] = useState(500)
+
+  const cost = ((inputTokens * promptPrice) + (outputTokens * completionPrice)) / 1_000_000
+
+  return jsxs('div', {
+    className: 'pt-1 border-t border-(--ui-stroke-secondary)',
+    children: [
+      jsx('div', { className: 'text-(--ui-text-quaternary) mb-1', children: 'Cost Calculator' }),
+      jsxs('div', {
+        className: 'flex gap-2 items-center text-[11px]',
+        children: [
+          jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Input' }),
+          jsx('input', {
+            type: 'number',
+            value: inputTokens,
+            onChange: e => setInputTokens(Number(e.target.value) || 0),
+            className: 'w-16 text-[11px] px-1 py-0.5 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary) font-mono'
+          }),
+          jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Output' }),
+          jsx('input', {
+            type: 'number',
+            value: outputTokens,
+            onChange: e => setOutputTokens(Number(e.target.value) || 0),
+            className: 'w-16 text-[11px] px-1 py-0.5 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary) font-mono'
+          }),
+          jsx('span', {
+            className: 'font-mono font-medium text-green-400',
+            children: cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`
+          }),
+        ]
+      }),
+    ]
+  })
+}
+
+function ModelDetails({ m, endpoints }) {
   const pp = formatPrice(m.prompt_price)
   const cp = formatPrice(m.completion_price)
   const cacheR = formatPrice(m.cache_read_price)
@@ -137,9 +174,18 @@ function ModelDetails({ m }) {
   return jsxs('div', {
     className: 'px-2 py-1.5 text-xs space-y-1 border-t border-(--ui-stroke-secondary)',
     children: [
-      m.description && jsx('div', {
+      m.description && jsxs('div', {
         className: 'text-(--ui-text-tertiary) leading-relaxed',
-        children: m.description
+        children: [
+          m.description,
+          jsx('a', {
+            href: `https://openrouter.ai/${m.id}`,
+            target: '_blank',
+            rel: 'noopener noreferrer',
+            className: 'ml-1 text-(--ui-accent, #60a5fa) hover:underline inline-flex items-center gap-0.5',
+            children: 'View on OpenRouter ↗'
+          })
+        ]
       }),
       jsxs('div', {
         className: 'grid grid-cols-2 gap-x-3 gap-y-0.5',
@@ -166,7 +212,18 @@ function ModelDetails({ m }) {
         className: 'grid grid-cols-2 gap-x-3 gap-y-0.5 pt-1 border-t border-(--ui-stroke-secondary)',
         children: [
           jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Context' }),
-          jsx('span', { className: 'text-(--ui-text-primary) font-mono', children: formatCtx(m.context_length) }),
+          jsxs('div', {
+            children: [
+              jsx('span', { className: 'text-(--ui-text-primary) font-mono', children: formatCtx(m.context_length) }),
+              jsx('div', {
+                className: 'mt-0.5 h-1 rounded bg-(--chrome-background-inset) overflow-hidden',
+                children: jsx('div', {
+                  className: 'h-full rounded bg-blue-500',
+                  style: { width: `${Math.min(100, (m.context_length / 2000000) * 100)}%` }
+                })
+              })
+            ]
+          }),
           m.max_completion_tokens && jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Max output' }),
           m.max_completion_tokens && jsx('span', { className: 'text-(--ui-text-primary) font-mono', children: formatCtx(m.max_completion_tokens) }),
           m.tokenizer && jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Tokenizer' }),
@@ -220,15 +277,78 @@ function ModelDetails({ m }) {
         className: 'text-[11px] text-(--ui-text-quaternary)',
         children: `Params: ${m.supported_parameters.join(', ')}`
       }),
+      // Cost calculator
+      (m.prompt_price > 0 || m.completion_price > 0) && jsx(CostCalculator, { promptPrice: m.prompt_price, completionPrice: m.completion_price }),
+      // Batch variant note
+      !m.variant && m.id && !m.id.endsWith(':batch') && jsx('div', {
+        className: 'text-[10px] text-(--ui-text-quaternary) pt-1 border-t border-(--ui-stroke-secondary)',
+        children: jsx('a', {
+          href: '#',
+          onClick: (e) => { e.preventDefault(); e.stopPropagation() },
+          className: 'text-(--ui-accent, #60a5fa) hover:underline',
+          children: 'Check for :batch variant (lower cost, slower)'
+        })
+      }),
+      // Provider health
+      endpoints && endpoints.length > 0 && jsxs('div', {
+        className: 'pt-1 border-t border-(--ui-stroke-secondary)',
+        children: [
+          jsx('div', { className: 'text-(--ui-text-quaternary) mb-1', children: 'Provider Health' }),
+          ...endpoints.slice(0, 3).map((ep, i) =>
+            jsxs('div', {
+              key: i,
+              className: 'flex items-center gap-2 text-[10px] mb-0.5',
+              children: [
+                jsx('span', { className: 'text-(--ui-text-quaternary) w-20 truncate', children: ep.provider_name || 'Unknown' }),
+                ep.uptime_last_30m != null && jsxs('span', {
+                  className: 'flex items-center gap-1',
+                  children: [
+                    jsx('span', {
+                      className: 'inline-block w-1.5 h-1.5 rounded-full',
+                      style: { backgroundColor: ep.uptime_last_30m >= 99 ? '#4ade80' : ep.uptime_last_30m >= 95 ? '#facc15' : '#f87171' }
+                    }),
+                    jsx('span', { className: 'font-mono', children: `${ep.uptime_last_30m.toFixed(1)}%` }),
+                  ]
+                }),
+                ep.latency_last_30m != null && jsx('span', {
+                  className: 'text-(--ui-text-quaternary)',
+                  children: `${Math.round(ep.latency_last_30m)}ms`
+                }),
+                ep.throughput_last_30m != null && jsx('span', {
+                  className: 'text-(--ui-text-quaternary)',
+                  children: `${Math.round(ep.throughput_last_30m)} t/s`
+                }),
+              ]
+            }, i)
+          )
+        ]
+      }),
     ]
   })
 }
 
 function CatalogRow({ model, isSelected, onToggle, isDefault }) {
   const [expanded, setExpanded] = useState(false)
+  const [endpoints, setEndpoints] = useState(null)
   const m = model
   const twoWeeksAgo = Math.floor(Date.now() / 1000) - (14 * 24 * 60 * 60)
   const isNew = m.created_ts > twoWeeksAgo
+
+  const loadEndpoints = useCallback(async () => {
+    if (endpoints !== null) return
+    try {
+      const resp = await fetch(`https://openrouter.ai/api/v1/models/${m.id}/endpoints`)
+      const data = await resp.json()
+      if (data && data.data && data.data.endpoints) {
+        setEndpoints(data.data.endpoints)
+      }
+    } catch {}
+  }, [m.id, endpoints])
+
+  const handleExpand = useCallback(() => {
+    if (!expanded) loadEndpoints()
+    setExpanded(!expanded)
+  }, [expanded, loadEndpoints])
 
   return jsxs('div', {
     className: cn(
@@ -299,12 +419,12 @@ function CatalogRow({ model, isSelected, onToggle, isDefault }) {
           }),
           jsx('button', {
             className: 'text-xs text-(--ui-text-quaternary) hover:text-(--ui-text-primary) px-0.5',
-            onClick: (e) => { e.stopPropagation(); setExpanded(!expanded) },
+            onClick: (e) => { e.stopPropagation(); handleExpand() },
             children: expanded ? '▾' : '▸'
           })
         ]
       }),
-      expanded && jsx(ModelDetails, { m })
+      expanded && jsx(ModelDetails, { m, endpoints })
     ]
   }, m.id)
 }
@@ -598,6 +718,7 @@ function PickerPage({ ctx }) {
 
 function AnalyticsPage({ ctx }) {
   const [analytics, setAnalytics] = useState(null)
+  const [credits, setCredits] = useState(null)
   const [activity, setActivity] = useState([])
   const [activityTotals, setActivityTotals] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -613,6 +734,13 @@ function AnalyticsPage({ ctx }) {
     } catch (e) { setAnalytics({ error: String(e) }) }
   }, [ctx])
 
+  const loadCredits = useCallback(async () => {
+    try {
+      const data = await api(ctx, 'GET', '/credits')
+      if (data && !data.error) setCredits(data)
+    } catch {}
+  }, [ctx])
+
   const loadActivity = useCallback(async () => {
     try {
       const data = await api(ctx, 'GET', '/activity' + (mgmtKey ? `?mgmt_key=${encodeURIComponent(mgmtKey)}` : ''))
@@ -624,7 +752,7 @@ function AnalyticsPage({ ctx }) {
     setLoading(false)
   }, [ctx, mgmtKey])
 
-  useEffect(() => { loadAnalytics(); loadActivity() }, [loadAnalytics, loadActivity])
+  useEffect(() => { loadAnalytics(); loadCredits(); loadActivity() }, [loadAnalytics, loadCredits, loadActivity])
 
   const saveKey = useCallback(() => {
     try { localStorage.setItem('or-picker-mgmt-key', mgmtKey) } catch {}
@@ -679,11 +807,32 @@ function AnalyticsPage({ ctx }) {
           analytics.limit_reset && jsx('div', { className: 'text-xs text-(--ui-text-quaternary) mt-2', children: `Resets: ${analytics.limit_reset}` }),
         ]
       }),
-      // Credits usage
+      // Account-level credits
+      credits && jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsx('div', { className: 'text-(--ui-text-quaternary) text-xs mb-3', children: 'Account Credits (All Keys)' }),
+          jsxs('div', {
+            className: 'grid grid-cols-2 gap-x-8 gap-y-2 text-sm',
+            children: [
+              jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Total Credits' }),
+              jsx('span', { className: 'font-mono text-right', children: fmt(credits.total_credits) }),
+              jsx('span', { className: 'text-(--ui-text-quaternary)', children: 'Total Used' }),
+              jsx('span', { className: 'font-mono text-right', children: fmt(credits.total_usage) }),
+              jsx('span', { className: 'text-(--ui-text-quaternary) border-t border-(--ui-stroke-secondary) pt-2', children: 'Remaining' }),
+              jsx('span', { className: 'font-mono text-right border-t border-(--ui-stroke-secondary) pt-2 font-bold', style: { color: (credits.remaining || 0) >= 5 ? '#4ade80' : '#f87171' }, children: fmt(credits.remaining) }),
+            ]
+          }),
+        ]
+      }),
+      // Per-key usage breakdown
       jsxs('div', {
         className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
         children: [
-          jsx('div', { className: 'text-(--ui-text-quaternary) text-xs mb-3', children: 'OpenRouter Credits Usage' }),
+          jsxs('div', { className: 'text-(--ui-text-quaternary) text-xs mb-3', children: [
+            'This Key Only ',
+            jsx('span', { className: 'text-[10px]', children: analytics.label ? `(${analytics.label})` : '' })
+          ]}),
           jsxs('div', {
             className: 'grid grid-cols-2 gap-x-8 gap-y-2 text-sm',
             children: [
