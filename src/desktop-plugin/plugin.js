@@ -328,6 +328,7 @@ function ModelDetails({ m, endpoints }) {
           }).filter(Boolean)
         ]
       }),
+      jsx('div', { className: 'border-t border-(--ui-stroke-secondary) mt-1' }),
     ]
   })
 }
