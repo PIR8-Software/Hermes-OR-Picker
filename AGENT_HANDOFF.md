@@ -20,11 +20,20 @@ Do **not** set `model_catalog.providers.openrouter.url` — that **replaces** th
 ## Features
 
 - **Model Catalog** — browse 400+ OpenRouter models with filters (sort, modality, context, provider, free-only)
-- **Model Badges** — NEW (last 2 weeks), DEFAULT (in Hermes default list), FREE, BATCH, tools 🔧, vision 👁, audio 🎤, image generation 🖼
+- **Model Badges** — NEW (last 2 weeks), DEFAULT (in Hermes default list), FREE, BATCH, tools 🔧, vision 👁, audio 🎤, image generation 🖼, agent, reasoning, long-ctx
 - **Credits Balance** — live balance in header (green ≥$5, red <$5)
-- **Analytics Page** — key info, balance, credits usage, BYOK usage, per-model breakdown with time periods (today/week/month/all)
+- **Analytics Page** — key info, balance, credits usage, BYOK usage, per-model breakdown with time periods (today/week/month/all), monthly forecast, price drop alerts
 - **News Page** — OpenRouter blog posts from RSS feed with NEW badge
+- **Changelog** — tracks new models, removed models, price changes since last check
+- **Model Comparison** — select 2-5 models, side-by-side table with pricing, context, capabilities, benchmarks
+- **Export/Import** — export/import curated list as JSON
 - **Design Arena** — ELO rankings and win rates in expanded model details
+- **Context Window Bar** — visual progress bar in expanded details
+- **Provider Health** — uptime %, latency, throughput per provider (fetched on expand)
+- **Cost Calculator** — enter input/output tokens, see estimated cost
+- **Quick Test** — send a test prompt to any model from expanded details
+- **Batch Variant Link** — click to search for `:batch` variant
+- **Auto-categorize** — agent (tools+vision), reasoning, long-ctx badges
 - **Management Key** — optional key for per-model analytics (stored in localStorage)
 
 ---
@@ -40,6 +49,8 @@ Do **not** set `model_catalog.providers.openrouter.url` — that **replaces** th
 | Desktop UI (Windows) | `%LOCALAPPDATA%\hermes\desktop-plugins\openrouter-picker\plugin.js` |
 | Dashboard API | `$HERMES_HOME/plugins/openrouter-picker/` |
 | Provider | `$HERMES_HOME/plugins/model-providers/or-picker/` |
+| Changelog snapshot | `$HERMES_HOME/openrouter-picker-changelog.json` |
+| Price alerts snapshot | `$HERMES_HOME/openrouter-picker-price-alerts.json` |
 
 `$HERMES_HOME` is `~/.hermes` unless a profile is active.
 
@@ -53,16 +64,19 @@ If the desktop app and the gateway run on different machines, copy `plugin.js` t
 OpenRouter GET /api/v1/models
         ↓
 dashboard plugin_api.py  /api/plugins/openrouter-picker/
-  GET  /catalog
-  GET  /models
-  POST /models          add  (JSON body {id, description})
-  POST /remove          remove (JSON body {id})  ← slashes + ~ aliases
+  GET  /catalog          full model catalog with filters
+  GET  /models           curated list
+  POST /models           add model (JSON body {id, description})
+  POST /remove           remove model (JSON body {id})
   PUT/DELETE /models/{id:path}
-  GET  /credits         remaining balance
-  GET  /blog            RSS feed from openrouter.ai/blog/feed.xml
-  GET  /default-models  Hermes built-in OpenRouter model IDs
-  GET  /analytics       key info, usage, BYOK from /api/v1/key
-  GET  /activity        per-model usage from /api/v1/activity (needs mgmt key)
+  GET  /credits          account balance from /api/v1/credits
+  GET  /blog             RSS feed from openrouter.ai/blog/feed.xml
+  GET  /default-models   Hermes built-in OpenRouter model IDs
+  GET  /analytics        key info, usage, BYOK from /api/v1/key
+  GET  /activity         per-model usage from /api/v1/activity (management key)
+  GET  /changelog        model changes since last snapshot
+  GET  /price-alerts     price drops in curated models
+  POST /test             send test prompt to model via /api/v1/chat/completions
         ↓ writes via Path.resolve() (keep symlink)
 openrouter-supplemental-models.json
         ↓ also clears ~/.hermes/provider_models_cache.json["or-picker"]
@@ -89,10 +103,18 @@ Desktop plugin:
 - Composer shows **OpenRouter** (stock) and **OR Picker** (curated).
 - Check/uncheck refreshes the composer list **without** quitting the desktop app (disk cache bust + React Query invalidate).
 - **Credits balance** in header (green ≥$5, red <$5).
-- **Analytics page** with key info, balance, usage breakdowns, per-model activity.
+- **Analytics page** with key info, balance, usage breakdowns, per-model activity, forecast, price alerts.
 - **News page** with blog posts from RSS feed, NEW badge on new posts.
-- **Model badges**: NEW (2 weeks), DEFAULT, FREE, BATCH, tools, vision, audio, image gen.
+- **Changelog** tracks added/removed/price-changed models.
+- **Model comparison** side-by-side table (up to 5 models).
+- **Export/import** curated list as JSON.
+- **Model badges**: NEW (2 weeks), DEFAULT, FREE, BATCH, tools, vision, audio, image gen, agent, reasoning, long-ctx.
 - **Design Arena** benchmarks in expanded model details.
+- **Context window bar** in expanded details.
+- **Provider health** (uptime, latency, throughput) on expand.
+- **Cost calculator** in expanded details.
+- **Quick test** — send prompt to model from expanded details.
+- **Batch variant link** — searches for `:batch` variant.
 
 ---
 
@@ -108,6 +130,11 @@ Desktop plugin:
 - **Desktop plugin path on Windows:** `%LOCALAPPDATA%\hermes\` (NOT `~\.hermes\`). The app reads from AppData, not the home directory.
 - **Management key** for per-model analytics is stored in localStorage (`or-picker-mgmt-key`). Create at [openrouter.ai/settings/management-keys](https://openrouter.ai/settings/management-keys).
 - **Blog NEW badge** uses localStorage (`or-picker-blog-last`). Clears when user opens the news view.
+- **Changelog** saves snapshot to `$HERMES_HOME/openrouter-picker-changelog.json`. First run shows no changes.
+- **Price alerts** saves snapshot to `$HERMES_HOME/openrouter-picker-price-alerts.json`. First run shows no alerts.
+- **Quick test** uses the OpenRouter API key from Hermes secret store. Some models return "no endpoints" if unavailable.
+- **Activity endpoint** requires a management key. Regular API key returns 0 items.
+- **Endpoints API** (`/models/{id}/endpoints`) returns null for latency/throughput on some models. Provider health skips those.
 
 ---
 

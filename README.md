@@ -8,12 +8,49 @@ Do **not** set `model_catalog.providers.openrouter.url` — that replaces the of
 
 ## Features
 
-- **Model Catalog** — browse 400+ OpenRouter models with filters (sort, modality, context, provider, free-only)
+### Model Catalog
+- Browse 400+ OpenRouter models with filters (sort, modality, context, provider, free-only)
 - **Model Badges** — NEW (last 2 weeks), DEFAULT (in Hermes default list), FREE, BATCH, tools 🔧, vision 👁, audio 🎤, image generation 🖼
-- **Credits Balance** — live balance in header (green ≥$5, red <$5)
-- **Analytics Page** — key info, balance, credits usage, BYOK usage, per-model breakdown with time periods (today/week/month/all)
-- **News Page** — OpenRouter blog posts from RSS feed with NEW badge
+- **Auto-categorize** — agent (tools+vision), reasoning, long-ctx badges
 - **Design Arena** — ELO rankings and win rates in expanded model details
+- **Context window bar** — visual progress bar showing context length relative to 2M max
+- **Provider health** — uptime %, latency, throughput per provider (fetched on expand)
+- **Cost calculator** — enter input/output tokens, see estimated cost per model
+- **Quick test** — send a test prompt to any model right from the picker
+- **Batch variant link** — click to search for `:batch` variant (lower cost, slower)
+- **View on OpenRouter** — link to full model page with complete description
+
+### Model Comparison
+- Click ⚖ on 2-5 models, then "⚖ Compare" button in header
+- Side-by-side table: pricing, context, max output, tools, vision, reasoning, intelligence/coding/agentic scores, provider, batch, moderated
+
+### Analytics Page (📊 button)
+- **API Key info** — label, tier, BYOK in limit
+- **🔑 Change Management Key** — input/save management key for per-model data
+- **Balance** — remaining credits (green ≥$5, red <$5), limit, reset schedule
+- **Account Credits** — total credits, total used, remaining (all keys)
+- **Per-Key Usage** — today, this week, this month, all time (this key only)
+- **BYOK Usage** — same breakdowns
+- **Total Spend** — today, this week, this month, all time (from activity API)
+- **Monthly Forecast** — projections from daily avg, weekly avg, current month pace
+- **Price Drop Alerts** — notifies when curated models get cheaper
+- **Usage by Model** — per-model cost, requests, tokens with time breakdowns (requires management key)
+
+### News Page (📰 button)
+- OpenRouter blog posts from RSS feed
+- Title, description, date for each post
+- Green **NEW** badge on new posts (auto-dismisses after viewing)
+
+### Changelog (📋 button)
+- Tracks new models, removed models, and price changes
+- Saves a snapshot on each check, diffs against previous
+
+### Export/Import
+- 📤 button — export curated list as JSON
+- 📥 button — import curated list from JSON
+
+### Credits Balance
+- Live balance in picker header (green ≥$5, red <$5)
 
 ## Requirements
 
@@ -64,7 +101,7 @@ Python API changes need a dashboard remount on the gateway host. Do not restart 
 
 ## Use
 
-1. Open the sidebar **OR Picker** page (or command palette → “Open OpenRouter Picker”).
+1. Open the sidebar **OR Picker** page (or command palette → "Open OpenRouter Picker").
 2. Check models. Uncheck to remove them.
 3. In the composer model picker, choose provider **OR Picker**.
 
@@ -84,6 +121,18 @@ New sessions pick this up.
 Desktop UI  $HERMES_HOME/desktop-plugins/openrouter-picker/plugin.js
         ↓  /api/plugins/openrouter-picker/
 Backend     $HERMES_HOME/plugins/openrouter-picker/dashboard/plugin_api.py
+  GET  /catalog          full model catalog
+  GET  /models           curated list
+  POST /models           add model
+  POST /remove           remove model
+  GET  /credits          account balance
+  GET  /blog             RSS feed
+  GET  /default-models   Hermes built-in IDs
+  GET  /analytics        key info + usage
+  GET  /activity         per-model usage (management key)
+  GET  /changelog        model changes since last check
+  GET  /price-alerts     price drops in curated models
+  POST /test             send test prompt to model
         ↓ writes
 JSON        $HERMES_HOME/openrouter-supplemental-models.json
         ↓ read by
