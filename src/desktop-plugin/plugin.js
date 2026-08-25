@@ -1125,40 +1125,7 @@ function AnalyticsPage({ ctx }) {
       activity.length > 0 ? jsxs('div', {
         className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
         children: [
-          jsxs('div', {
-            className: 'flex items-center justify-between mb-3',
-            children: [
-              jsx('span', { className: 'text-(--ui-text-quaternary) text-xs', children: 'Usage by Model' }),
-              jsx('button', {
-                className: 'text-[10px] px-1.5 py-0.5 rounded text-(--ui-text-quaternary) hover:text-(--ui-text-primary) hover:bg-(--chrome-action-hover)',
-                onClick: () => setShowKeyInput(!showKeyInput),
-                children: '🔑 Change Key'
-              })
-            ]
-          }),
-          showKeyInput && jsxs('div', {
-            className: 'flex gap-2 items-center mb-3',
-            children: [
-              jsx('input', {
-                type: 'password',
-                value: mgmtKey,
-                onChange: e => setMgmtKey(e.target.value),
-                placeholder: 'sk-or-mgmt-...',
-                className: 'flex-1 text-[12px] px-2 py-1 rounded border border-(--ui-stroke-secondary) bg-(--chrome-background) text-(--ui-text-primary) placeholder:text-(--ui-text-quaternary)',
-                onKeyDown: e => { if (e.key === 'Enter') saveKey() }
-              }),
-              jsx('button', {
-                className: 'text-xs px-2 py-1 rounded bg-(--ui-accent) text-white',
-                onClick: saveKey,
-                children: 'Save'
-              }),
-              jsx('button', {
-                className: 'text-xs px-2 py-1 rounded text-(--ui-text-tertiary)',
-                onClick: () => setShowKeyInput(false),
-                children: 'Cancel'
-              }),
-            ]
-          }),
+          jsx('div', { className: 'text-(--ui-text-quaternary) text-xs mb-3', children: 'Usage by Model' }),
           jsxs('div', {
             className: 'space-y-2',
             children: activity.slice(0, 15).map((m, i) =>
