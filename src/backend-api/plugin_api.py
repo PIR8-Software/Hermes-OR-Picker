@@ -704,13 +704,16 @@ def get_activity(mgmt_key: str = ""):
 # ── GET /changelog ─────────────────────────────────────────────────
 @router.get("/changelog")
 def get_changelog():
-    """Compare current catalog against saved snapshot, return changes."""
+    """Compare current catalog against saved snapshot, return changes and history."""
     try:
-        # Load previous snapshot
-        snapshot = {}
+        # Load previous data (snapshot + history)
+        data = {}
         if CHANGELOG_PATH.exists():
             with open(CHANGELOG_PATH) as f:
-                snapshot = json.load(f)
+                data = json.load(f)
+        
+        snapshot = data.get("snapshot", {})
+        history = data.get("history", [])
         
         # Get current catalog (just id, name, prices)
         catalog = _fetch_catalog()
@@ -747,9 +750,25 @@ def get_changelog():
             if mid not in current:
                 removed.append({"id": mid, "name": mdata.get("name", "")})
         
-        # Save new snapshot
+        # Save to history if there are changes
+        has_changes = added or removed or price_changed
+        if has_changes:
+            from datetime import datetime, timezone
+            history.append({
+                "date": datetime.now(timezone.utc).isoformat(),
+                "added": added,
+                "removed": removed,
+                "price_changed": price_changed,
+                "total_added": len(added),
+                "total_removed": len(removed),
+                "total_price_changed": len(price_changed),
+            })
+            # Keep last 50 entries
+            history = history[-50:]
+        
+        # Save new snapshot + history
         with open(CHANGELOG_PATH, "w") as f:
-            json.dump(current, f)
+            json.dump({"snapshot": current, "history": history}, f)
         
         return {
             "added": added,
@@ -759,6 +778,8 @@ def get_changelog():
             "total_removed": len(removed),
             "total_price_changed": len(price_changed),
             "snapshot_size": len(current),
+            "history": history,
+            "history_count": len(history),
         }
     except Exception as e:
         return {"error": str(e)}

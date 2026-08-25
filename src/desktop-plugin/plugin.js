@@ -1219,6 +1219,7 @@ function AnalyticsPage({ ctx }) {
 function ChangelogView({ ctx, onClose }) {
   const [changelog, setChangelog] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [showHistory, setShowHistory] = useState(false)
 
   const loadChangelog = useCallback(async () => {
     try {
@@ -1233,6 +1234,7 @@ function ChangelogView({ ctx, onClose }) {
   if (loading) return jsx('div', { className: 'flex items-center justify-center h-full text-(--ui-text-quaternary)', children: 'Loading changelog…' })
 
   const hasChanges = changelog && (changelog.total_added > 0 || changelog.total_removed > 0 || changelog.total_price_changed > 0)
+  const history = changelog?.history || []
 
   return jsxs('div', {
     className: 'flex-1 overflow-y-auto p-4 space-y-4',
@@ -1241,57 +1243,96 @@ function ChangelogView({ ctx, onClose }) {
         className: 'flex items-center justify-between',
         children: [
           jsx('span', { className: 'font-medium', children: 'Model Changelog' }),
-          jsx('button', {
-            className: 'text-xs px-2 py-1 rounded text-(--ui-text-tertiary) hover:text-(--ui-text-primary)',
-            onClick: onClose,
-            children: '✕ Close'
+          jsxs('div', {
+            className: 'flex gap-2',
+            children: [
+              history.length > 0 && jsx('button', {
+                className: 'text-xs px-2 py-1 rounded text-(--ui-text-tertiary) hover:text-(--ui-text-primary)',
+                onClick: () => setShowHistory(!showHistory),
+                children: showHistory ? '📋 Current' : `📋 History (${history.length})`
+              }),
+              jsx('button', {
+                className: 'text-xs px-2 py-1 rounded text-(--ui-text-tertiary) hover:text-(--ui-text-primary)',
+                onClick: onClose,
+                children: '✕ Close'
+              })
+            ]
           })
         ]
       }),
-      !hasChanges && jsx('div', {
-        className: 'text-(--ui-text-quaternary) text-center py-8',
-        children: 'No changes since last check. This will track new models, removed models, and price changes.'
-      }),
-      // Added models
-      changelog && changelog.total_added > 0 && jsxs('div', {
-        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+      // Current changes
+      !showHistory && jsxs('div', {
+        className: 'space-y-4',
         children: [
-          jsx('div', { className: 'text-green-400 text-xs mb-2', children: `+ ${changelog.total_added} New Models` }),
-          ...changelog.added.slice(0, 20).map((m, i) =>
-            jsx('div', { key: i, className: 'text-xs py-0.5', children: `${m.id} — ${m.name}` })
-          ),
-          changelog.total_added > 20 && jsx('div', { className: 'text-xs text-(--ui-text-quaternary) mt-1', children: `…and ${changelog.total_added - 20} more` })
+          !hasChanges && jsx('div', {
+            className: 'text-(--ui-text-quaternary) text-center py-8',
+            children: 'No changes since last check. This will track new models, removed models, and price changes.'
+          }),
+          changelog && changelog.total_added > 0 && jsxs('div', {
+            className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+            children: [
+              jsx('div', { className: 'text-green-400 text-xs mb-2', children: `+ ${changelog.total_added} New Models` }),
+              ...changelog.added.slice(0, 20).map((m, i) =>
+                jsx('div', { key: i, className: 'text-xs py-0.5', children: `${m.id} — ${m.name}` })
+              ),
+              changelog.total_added > 20 && jsx('div', { className: 'text-xs text-(--ui-text-quaternary) mt-1', children: `…and ${changelog.total_added - 20} more` })
+            ]
+          }),
+          changelog && changelog.total_removed > 0 && jsxs('div', {
+            className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+            children: [
+              jsx('div', { className: 'text-red-400 text-xs mb-2', children: `− ${changelog.total_removed} Removed Models` }),
+              ...changelog.removed.slice(0, 20).map((m, i) =>
+                jsx('div', { key: i, className: 'text-xs py-0.5', children: `${m.id} — ${m.name}` })
+              )
+            ]
+          }),
+          changelog && changelog.total_price_changed > 0 && jsxs('div', {
+            className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+            children: [
+              jsx('div', { className: 'text-yellow-400 text-xs mb-2', children: `~ ${changelog.total_price_changed} Price Changes` }),
+              ...changelog.price_changed.slice(0, 20).map((m, i) => {
+                const promptDir = m.new_prompt > m.old_prompt ? '↑' : m.new_prompt < m.old_prompt ? '↓' : ''
+                const compDir = m.new_completion > m.old_completion ? '↑' : m.new_completion < m.old_completion ? '↓' : ''
+                return jsx('div', {
+                  key: i,
+                  className: 'text-xs py-0.5',
+                  children: `${m.id}: in $${m.old_prompt.toFixed(2)}→$${m.new_prompt.toFixed(2)}${promptDir}  out $${m.old_completion.toFixed(2)}→$${m.new_completion.toFixed(2)}${compDir}`
+                })
+              })
+            ]
+          }),
+          changelog && jsx('div', {
+            className: 'text-[10px] text-(--ui-text-quaternary) text-center',
+            children: `Snapshot: ${changelog.snapshot_size} models tracked`
+          })
         ]
       }),
-      // Removed models
-      changelog && changelog.total_removed > 0 && jsxs('div', {
-        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+      // History
+      showHistory && jsxs('div', {
+        className: 'space-y-4',
         children: [
-          jsx('div', { className: 'text-red-400 text-xs mb-2', children: `− ${changelog.total_removed} Removed Models` }),
-          ...changelog.removed.slice(0, 20).map((m, i) =>
-            jsx('div', { key: i, className: 'text-xs py-0.5', children: `${m.id} — ${m.name}` })
+          history.length === 0 && jsx('div', {
+            className: 'text-(--ui-text-quaternary) text-center py-8',
+            children: 'No history yet. Changes will be recorded here over time.'
+          }),
+          ...history.slice().reverse().map((entry, i) =>
+            jsxs('div', {
+              key: i,
+              className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+              children: [
+                jsx('div', { className: 'text-xs text-(--ui-text-quaternary) mb-2', children: new Date(entry.date).toLocaleString() }),
+                entry.total_added > 0 && jsx('div', { className: 'text-green-400 text-xs', children: `+ ${entry.total_added} added` }),
+                entry.total_removed > 0 && jsx('div', { className: 'text-red-400 text-xs', children: `− ${entry.total_removed} removed` }),
+                entry.total_price_changed > 0 && jsx('div', { className: 'text-yellow-400 text-xs', children: `~ ${entry.total_price_changed} price changes` }),
+                entry.added && entry.added.length > 0 && jsx('div', {
+                  className: 'text-[10px] text-(--ui-text-quaternary) mt-1',
+                  children: entry.added.slice(0, 5).map(m => m.id).join(', ') + (entry.added.length > 5 ? ` +${entry.added.length - 5} more` : '')
+                }),
+              ]
+            })
           )
         ]
-      }),
-      // Price changes
-      changelog && changelog.total_price_changed > 0 && jsxs('div', {
-        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
-        children: [
-          jsx('div', { className: 'text-yellow-400 text-xs mb-2', children: `~ ${changelog.total_price_changed} Price Changes` }),
-          ...changelog.price_changed.slice(0, 20).map((m, i) => {
-            const promptDir = m.new_prompt > m.old_prompt ? '↑' : m.new_prompt < m.old_prompt ? '↓' : ''
-            const compDir = m.new_completion > m.old_completion ? '↑' : m.new_completion < m.old_completion ? '↓' : ''
-            return jsx('div', {
-              key: i,
-              className: 'text-xs py-0.5',
-              children: `${m.id}: in $${m.old_prompt.toFixed(2)}→$${m.new_prompt.toFixed(2)}${promptDir}  out $${m.old_completion.toFixed(2)}→$${m.new_completion.toFixed(2)}${compDir}`
-            })
-          })
-        ]
-      }),
-      changelog && jsx('div', {
-        className: 'text-[10px] text-(--ui-text-quaternary) text-center',
-        children: `Snapshot: ${changelog.snapshot_size} models tracked`
       })
     ]
   })
