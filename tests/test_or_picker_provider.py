@@ -91,3 +91,20 @@ class TestCuratedIds:
         assert profile.fallback_models == ("two/b",)
         assert profile.fetch_models() == ["two/b"]
         assert profile.name == "or-picker"
+
+    def test_profile_home_falls_back_to_install_list(self, tmp_path, monkeypatch):
+        profile_home = tmp_path / "profiles" / "betty"
+        profile_home.mkdir(parents=True)
+        shared = tmp_path / "openrouter-supplemental-models.json"
+        shared.write_text(json.dumps(_manifest(["shared/model"])))
+        mod = _load_provider(tmp_path / "unused.json")
+        monkeypatch.delenv("OPENROUTER_PICKER_MODELS", raising=False)
+        class _Home:
+            @staticmethod
+            def get_hermes_home():
+                return profile_home
+
+        monkeypatch.setitem(sys.modules, "hermes_constants", _Home)
+        monkeypatch.setattr(mod, "_shared_models_path", lambda: shared)
+        assert mod._models_path() == shared
+        assert mod._curated_ids() == ["shared/model"]

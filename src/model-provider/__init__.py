@@ -16,15 +16,30 @@ from providers import register_provider
 from providers.base import ProviderProfile
 
 
+def _shared_models_path() -> Path:
+    """Install-wide list. The desktop plugin writes this, not a profile copy."""
+    return Path.home() / ".hermes" / "openrouter-supplemental-models.json"
+
+
 def _models_path() -> Path:
     override = os.environ.get("OPENROUTER_PICKER_MODELS", "").strip()
     if override:
         return Path(override)
+    scoped = None
     try:
         from hermes_constants import get_hermes_home
-        return get_hermes_home() / "openrouter-supplemental-models.json"
+        scoped = get_hermes_home() / "openrouter-supplemental-models.json"
     except Exception:
-        return Path.home() / ".hermes" / "openrouter-supplemental-models.json"
+        scoped = None
+    # Settings scopes HERMES_HOME to profiles/<name>. That home has the key
+    # but not the curated file, and an empty catalog is reported as
+    # "paste OPENROUTER_API_KEY". Use the install-wide file instead.
+    shared = _shared_models_path()
+    if scoped is not None and scoped.is_file():
+        return scoped
+    if shared.is_file():
+        return shared
+    return scoped if scoped is not None else shared
 
 
 def _curated_ids() -> list[str]:
