@@ -13,7 +13,7 @@ API_DIR = ROOT / "src" / "backend-api"
 if str(API_DIR) not in sys.path:
     sys.path.insert(0, str(API_DIR))
 
-import plugin_api as api  # noqa: E402
+import plugin_api as api
 
 
 @pytest.fixture

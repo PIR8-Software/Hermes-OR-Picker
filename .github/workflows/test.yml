@@ -14,5 +14,7 @@ jobs:
         with:
           node-version: "24"
       - uses: astral-sh/setup-uv@v5
+      - name: lint
+        run: uv run --with-requirements requirements-dev.txt ruff check .
       - name: pytest
-        run: uv run --with pytest pytest -q
+        run: uv run --with-requirements requirements-dev.txt pytest -q

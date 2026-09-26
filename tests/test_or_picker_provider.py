@@ -106,5 +106,5 @@ class TestCuratedIds:
 
         monkeypatch.setitem(sys.modules, "hermes_constants", _Home)
         monkeypatch.setattr(mod, "_shared_models_path", lambda: shared)
-        assert mod._models_path() == shared
+        assert mod._resolve_models_path() == shared
         assert mod._curated_ids() == ["shared/model"]

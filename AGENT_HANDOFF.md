@@ -54,6 +54,8 @@ Do **not** set `model_catalog.providers.openrouter.url` — that **replaces** th
 
 `$HERMES_HOME` is `~/.hermes` unless a profile is active.
 
+**Curated-JSON resolution (backend + provider, identical):** `OPENROUTER_MODELS_PATH` → `OPENROUTER_PICKER_MODELS` → `<hermes-root>/openrouter-supplemental-models.json` (shared, canonical) if it exists → `<profile-home>/openrouter-supplemental-models.json` if it exists → shared (creation target). Snapshots (changelog, price-alerts) always live at the Hermes root.
+
 If the desktop app and the gateway run on different machines, copy `plugin.js` to the desktop machine. The API and provider stay on the gateway host.
 
 ---
@@ -66,14 +68,18 @@ OpenRouter GET /api/v1/models
 dashboard plugin_api.py  /api/plugins/openrouter-picker/
   GET  /catalog          full model catalog with filters
   GET  /models           curated list
-  POST /models           add model (JSON body {id, description})
+  POST /models           add model (JSON body {id, description}; {id, remove: true} removes)
   POST /remove           remove model (JSON body {id})
   PUT/DELETE /models/{id:path}
+  POST /reorder          reorder curated list (JSON body {order: [...]})
+  GET  /config           resolved models path + symlink info
   GET  /credits          account balance from /api/v1/credits
   GET  /blog             RSS feed from openrouter.ai/blog/feed.xml
   GET  /default-models   Hermes built-in OpenRouter model IDs
   GET  /analytics        key info, usage, BYOK from /api/v1/key
-  GET  /activity         per-model usage from /api/v1/activity (management key)
+  GET  /activity         per-model usage (X-OR-Management-Key header; never query string)
+  POST /activity         per-model usage (JSON body {mgmt_key})
+  GET  /endpoints/{id:path}  provider health proxy for /api/v1/models/{id}/endpoints
   GET  /changelog        model changes since last snapshot
   GET  /price-alerts     price drops in curated models
   POST /test             send test prompt to model via /api/v1/chat/completions
@@ -128,10 +134,10 @@ Desktop plugin:
 - **Python API changes** need a dashboard remount (`systemctl --user restart hermes-dashboard.service` from a **separate** shell, or equivalent). Do not bounce the gateway from a live gateway chat. Dashboard restart blinks desktop sessions.
 - Relays are unrelated. Do not kill `hermes relay` to debug the picker.
 - **Desktop plugin path on Windows:** `%LOCALAPPDATA%\hermes\` (NOT `~\.hermes\`). The app reads from AppData, not the home directory.
-- **Management key** for per-model analytics is stored in localStorage (`or-picker-mgmt-key`). Create at [openrouter.ai/settings/management-keys](https://openrouter.ai/settings/management-keys).
+- **Management key** for per-model analytics is stored in localStorage (`or-picker-mgmt-key`) and sent to the backend in a POST body (`POST /activity`) or header (`X-OR-Management-Key`) — **never** a URL query string. Create at [openrouter.ai/settings/management-keys](https://openrouter.ai/settings/management-keys).
 - **Blog NEW badge** uses localStorage (`or-picker-blog-last`). Clears when user opens the news view.
-- **Changelog** saves snapshot to `$HERMES_HOME/openrouter-picker-changelog.json`. First run shows no changes.
-- **Price alerts** saves snapshot to `$HERMES_HOME/openrouter-picker-price-alerts.json`. First run shows no alerts.
+- **Changelog** saves snapshot to `$HERMES_HOME/openrouter-picker-changelog.json` (atomic tmp+replace). First run reports the whole catalog as "added" and creates the baseline.
+- **Price alerts** saves snapshot to `$HERMES_HOME/openrouter-picker-price-alerts.json` (atomic). First run shows no alerts.
 - **Quick test** uses the OpenRouter API key from Hermes secret store. Some models return "no endpoints" if unavailable.
 - **Activity endpoint** requires a management key. Regular API key returns 0 items.
 - **Endpoints API** (`/models/{id}/endpoints`) returns null for latency/throughput on some models. Provider health skips those.
@@ -149,7 +155,7 @@ Desktop plugin:
 
 ## Next (optional)
 
-- Tighten ID regex if you care about `../` style false positives (catalog IDs only come from OpenRouter).
+- ~~Tighten ID regex~~ — done: `_valid_id` now rejects `..` and `//` (ids feed upstream URL paths).
 - Do not merge the curated list into stock OpenRouter unless the user asks.
 - Add Analytics API (`/api/v1/analytics/query`) for richer time-series data.
 - Add per-request logs if OpenRouter exposes them.

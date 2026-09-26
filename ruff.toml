@@ -1,0 +1,31 @@
+# Ruff gate for the OR Picker (small Hermes-integrated plugin).
+# Run: ruff check .
+# Deliberate scope: correctness-oriented linting (pyflakes/pycodestyle, isort,
+# pyupgrade, bugbear, simplify, naming). Complexity/pedantic rule families
+# (PL*/S*/DTZ/BLE) are out of scope for a plugin this size.
+line-length = 110
+target-version = "py311"
+exclude = [".venv-dev"]
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "N"]
+ignore = [
+    # Long descriptive strings and JSON literals; formatting is not gated.
+    "E501",
+    # Best-effort cleanup/guard paths use try/except/pass on purpose.
+    "SIM105",
+    # The lock sidecar handle's lifetime is managed by the enclosing
+    # _file_lock context manager on purpose.
+    "SIM115",
+    # Intentional display glyphs in UI strings (x - ->).
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # Plugin package dirs use hyphens (Hermes plugin layout): backend-api,
+    # model-provider. Renaming them breaks installs.
+    "N999",
+]
+
+[lint.per-file-ignores]
+# Tests bootstrap sys.path before importing the plugin module under test.
+"tests/**" = ["E402"]

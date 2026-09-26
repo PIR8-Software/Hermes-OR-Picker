@@ -7,11 +7,13 @@ Exposes every field the OpenRouter /api/v1/models endpoint returns.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
+import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,18 +34,78 @@ except Exception:
 
 router = APIRouter()
 
-MODELS_PATH = Path(os.environ.get(
-    "OPENROUTER_MODELS_PATH",
-    str(Path.home() / ".hermes" / "openrouter-supplemental-models.json"),
-))
-CHANGELOG_PATH = Path.home() / ".hermes" / "openrouter-picker-changelog.json"
+# ── Curated-JSON path resolution ──────────────────────────────────────
+# KEEP IN SYNC with src/model-provider/__init__.py — the dashboard writer
+# and the provider reader must agree on one file (contract tests:
+# tests/test_path_resolution.py).
+
+
+def _hermes_home() -> Path:
+    """Active Hermes home (profile-scoped when Settings scopes HERMES_HOME)."""
+    try:
+        from hermes_constants import get_hermes_home
+        return Path(get_hermes_home())
+    except Exception:
+        pass
+    env = os.environ.get("HERMES_HOME", "").strip()
+    return Path(env) if env else Path.home() / ".hermes"
+
+
+def _hermes_root() -> Path:
+    """Install-wide root: ``<root>`` when the home is ``<root>/profiles/<name>``."""
+    try:
+        from hermes_constants import get_default_hermes_root
+        return Path(get_default_hermes_root())
+    except Exception:
+        pass
+    home = _hermes_home()
+    return home.parent.parent if home.parent.name == "profiles" else home
+
+
+def _shared_models_path() -> Path:
+    return _hermes_root() / "openrouter-supplemental-models.json"
+
+
+def _scoped_models_path() -> Path:
+    return _hermes_home() / "openrouter-supplemental-models.json"
+
+
+def _resolve_models_path() -> Path:
+    """One curated-JSON path for the writer AND the reader.
+
+    Order: explicit env overrides (both historical names) → install-wide
+    shared file → profile-scoped file if one exists → shared (creation
+    target). The shared file is the documented canonical store, so it wins
+    over a stray scoped copy instead of splitting reads from writes.
+    """
+    for var in ("OPENROUTER_MODELS_PATH", "OPENROUTER_PICKER_MODELS"):
+        val = os.environ.get(var, "").strip()
+        if val:
+            return Path(val)
+    shared = _shared_models_path()
+    if shared.is_file():
+        return shared
+    scoped = _scoped_models_path()
+    if scoped.is_file():
+        return scoped
+    return shared
+
+
+def _snapshot_path(name: str) -> Path:
+    """Plugin snapshots (changelog, price alerts) live at the Hermes root."""
+    return _hermes_root() / name
+
+
+MODELS_PATH = _resolve_models_path()
+CHANGELOG_PATH = _snapshot_path("openrouter-picker-changelog.json")
 
 OPENROUTER_API = "https://openrouter.ai/api/v1/models"
 OPENROUTER_BLOG_FEED = "https://openrouter.ai/blog/feed.xml"
 
-# Cache: key = query params hash → (data, timestamp)
+# Cache: key = query params hash → (data, timestamp). Bounded (F-7).
 _CATALOG_CACHE: dict[str, tuple[list[dict], float]] = {}
 CATALOG_TTL = 300  # 5 minutes
+CATALOG_CACHE_MAX = 8
 
 # Blog feed cache
 _BLOG_CACHE: tuple[list[dict], float] | None = None
@@ -57,6 +119,60 @@ def _read_models() -> dict[str, Any]:
         return json.loads(MODELS_PATH.read_text())
     except (json.JSONDecodeError, OSError):
         return _empty_manifest()
+
+
+# ── Concurrency + atomic persistence ──────────────────────────────────
+# In-process: a reentrant lock around every read-modify-write. Cross-process:
+# an advisory lock on a "<file>.lock" sidecar (fcntl on POSIX, msvcrt on
+# Windows, best effort elsewhere). Writes are tmp + rename, so a crash can
+# never leave a half-written JSON file.
+
+_IO_LOCK = threading.RLock()
+
+
+@contextlib.contextmanager
+def _file_lock(target: Path):
+    lock_path = Path(str(target) + ".lock")
+    fh = None
+    try:
+        fh = open(lock_path, "a+")
+        try:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        except ImportError:  # Windows
+            try:
+                import msvcrt
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        yield
+    finally:
+        if fh is not None:
+            try:
+                fh.close()  # releases the advisory lock
+            except Exception:
+                pass
+
+
+def _write_json_atomic(path: Path, data: Any, indent: int | None = None) -> None:
+    """Write JSON via tmp + rename, keeping a symlink at *path* intact."""
+    target = path.resolve() if path.exists() else path
+    tmp = target.with_name(target.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=indent, ensure_ascii=False) + "\n")
+    tmp.replace(target)
+
+
+def _mutate_models(mutator):
+    """Read-modify-write the manifest under lock; persists when mutator says ok."""
+    with _IO_LOCK, _file_lock(MODELS_PATH):
+        data = _read_models()
+        result = mutator(data)
+        if isinstance(result, dict) and result.get("ok"):
+            _write_models(data)
+        return result
 
 
 def _invalidate_or_picker_cache() -> None:
@@ -84,11 +200,8 @@ def _invalidate_or_picker_cache() -> None:
 
 
 def _write_models(data: dict[str, Any]) -> None:
-    data["updated_at"] = datetime.now(timezone.utc).isoformat()
-    target = MODELS_PATH.resolve() if MODELS_PATH.exists() else MODELS_PATH
-    tmp = target.with_name(target.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-    tmp.replace(target)
+    data["updated_at"] = datetime.now(UTC).isoformat()
+    _write_json_atomic(MODELS_PATH, data, indent=2)
     _invalidate_or_picker_cache()
 
 
@@ -102,7 +215,10 @@ def _as_dict(body: Any) -> dict[str, Any]:
 
 
 def _valid_id(mid: str) -> bool:
-    # OpenRouter "latest" aliases are ids like ~anthropic/claude-opus-latest
+    # OpenRouter "latest" aliases are ids like ~anthropic/claude-opus-latest.
+    # ".." and "//" are rejected: ids are interpolated into upstream API paths.
+    if ".." in mid or "//" in mid:
+        return False
     return bool(re.match(r"^~?[A-Za-z0-9_.-]+/[A-Za-z0-9_.:/-]+$", mid))
 
 
@@ -115,20 +231,39 @@ async def _json_body(request: Request) -> dict[str, Any]:
 
 
 def _remove_id(mid: str) -> dict[str, Any]:
-    data = _read_models()
-    models = _get_models_list(data)
-    before = len(models)
-    models[:] = [m for m in models if m["id"] != mid]
-    if len(models) == before:
-        return {"error": f"Model {mid} not found"}
-    _write_models(data)
-    return {"ok": True, "removed": mid, "count": len(models)}
+    def mutator(data: dict[str, Any]) -> dict[str, Any]:
+        models = _get_models_list(data)
+        before = len(models)
+        models[:] = [m for m in models if m["id"] != mid]
+        if len(models) == before:
+            return {"error": f"Model {mid} not found"}
+        return {"ok": True, "removed": mid, "count": len(models)}
+
+    return _mutate_models(mutator)
+
+
+def _add_id(mid: str, desc: str = "") -> dict[str, Any]:
+    mid = (mid or "").strip()
+    desc = (desc or "").strip()
+    if not mid:
+        return {"error": "id required"}
+    if not _valid_id(mid):
+        return {"error": f"Invalid model ID format: {mid}"}
+
+    def mutator(data: dict[str, Any]) -> dict[str, Any]:
+        models = _get_models_list(data)
+        if any(m["id"] == mid for m in models):
+            return {"error": f"Model {mid} already in list"}
+        models.append({"id": mid, "description": desc or mid})
+        return {"ok": True, "added": mid, "count": len(models)}
+
+    return _mutate_models(mutator)
 
 
 def _empty_manifest() -> dict[str, Any]:
     return {
         "version": 1,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         "metadata": {"source": "Supplemental OpenRouter picker models"},
         "providers": {
             "openrouter": {
@@ -173,7 +308,7 @@ def _enrich_model(m: dict, curated_ids: set[str]) -> dict[str, Any]:
     created_str = ""
     if created_ts:
         try:
-            created_str = datetime.fromtimestamp(created_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+            created_str = datetime.fromtimestamp(created_ts, tz=UTC).strftime("%Y-%m-%d")
         except Exception:
             pass
 
@@ -290,6 +425,8 @@ def _fetch_catalog(
 
     enriched = [_enrich_model(m, curated_ids) for m in raw if m.get("id")]
     _CATALOG_CACHE[cache_key] = (enriched, now)
+    while len(_CATALOG_CACHE) > CATALOG_CACHE_MAX:
+        _CATALOG_CACHE.pop(next(iter(_CATALOG_CACHE)))
     return enriched
 
 
@@ -344,18 +481,7 @@ async def add_model(request: Request):
         return {"error": "id required"}
     if body.get("remove"):
         return _remove_id(mid)
-    if not _valid_id(mid):
-        return {"error": f"Invalid model ID format: {mid}"}
-
-    data = _read_models()
-    models = _get_models_list(data)
-    existing = {m["id"] for m in models}
-    if mid in existing:
-        return {"error": f"Model {mid} already in list"}
-
-    models.append({"id": mid, "description": desc or mid})
-    _write_models(data)
-    return {"ok": True, "added": mid, "count": len(models)}
+    return _add_id(mid, desc)
 
 
 # ── POST /remove ─────────────────────────────────────────────────────
@@ -374,15 +500,16 @@ def update_model(model_id: str, body: dict | None = None):
     if not body:
         return {"error": "body required"}
 
-    data = _read_models()
-    models = _get_models_list(data)
-    for m in models:
-        if m["id"] == model_id:
-            if "description" in body:
-                m["description"] = body["description"]
-            _write_models(data)
-            return {"ok": True, "updated": model_id}
-    return {"error": f"Model {model_id} not found"}
+    def mutator(data: dict[str, Any]) -> dict[str, Any]:
+        models = _get_models_list(data)
+        for m in models:
+            if m["id"] == model_id:
+                if "description" in body:
+                    m["description"] = body["description"]
+                return {"ok": True, "updated": model_id}
+        return {"error": f"Model {model_id} not found"}
+
+    return _mutate_models(mutator)
 
 
 # ── DELETE /models/{model_id} ───────────────────────────────────────
@@ -398,18 +525,18 @@ def reorder_models(body: dict | None = None):
         return {"error": "body with 'order' list required"}
     new_order = body["order"]
 
-    data = _read_models()
-    models = _get_models_list(data)
-    by_id = {m["id"]: m for m in models}
-    reordered = []
-    for mid in new_order:
-        if mid in by_id:
-            reordered.append(by_id.pop(mid))
-    reordered.extend(by_id.values())
+    def mutator(data: dict[str, Any]) -> dict[str, Any]:
+        models = _get_models_list(data)
+        by_id = {m["id"]: m for m in models}
+        reordered = []
+        for mid in new_order:
+            if mid in by_id:
+                reordered.append(by_id.pop(mid))
+        reordered.extend(by_id.values())
+        data["providers"]["openrouter"]["models"] = reordered
+        return {"ok": True, "count": len(reordered)}
 
-    data["providers"]["openrouter"]["models"] = reordered
-    _write_models(data)
-    return {"ok": True, "count": len(reordered)}
+    return _mutate_models(mutator)
 
 
 # ── GET /config ─────────────────────────────────────────────────────
@@ -423,10 +550,41 @@ def get_config():
     }
 
 
+# ── GET /endpoints/{model_id} ───────────────────────────────────────
+@router.get("/endpoints/{model_id:path}")
+def get_model_endpoints(model_id: str):
+    """Provider-health endpoints, proxied so the UI never raw-fetches (F-10)."""
+    mid = (model_id or "").strip()
+    if not mid or not _valid_id(mid):
+        return {"error": f"Invalid model ID format: {mid}"}
+    try:
+        import httpx
+        resp = httpx.get(
+            f"https://openrouter.ai/api/v1/models/{mid}/endpoints",
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", {}) or {}
+        return {"endpoints": data.get("endpoints", [])}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # ── GET /blog ──────────────────────────────────────────────────────
+RSS_MAX_BYTES = 1_000_000
+
+
 def _parse_rss_feed(xml_text: str) -> list[dict[str, str]]:
-    """Parse RSS/XML into a flat list of {title, link, description, pubDate}."""
+    """Parse RSS/XML into a flat list of {title, link, description, pubDate}.
+
+    Defensive parse (N-2): size-capped and DTD/entity declarations are
+    rejected outright before the XML parser sees the document.
+    """
     import xml.etree.ElementTree as ET
+    if not xml_text or len(xml_text) > RSS_MAX_BYTES:
+        return []
+    if "<!DOCTYPE" in xml_text or "<!ENTITY" in xml_text:
+        return []
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
@@ -592,25 +750,32 @@ def get_analytics():
     return _fetch_analytics()
 
 
-# ── GET /activity ──────────────────────────────────────────────────
-_ACTIVITY_CACHE: tuple[list, float] | None = None
+# ── GET/POST /activity ──────────────────────────────────────────────
+# Per-key cache: hashed management key → (result, timestamp). Bounded.
+_ACTIVITY_CACHE: dict[str, tuple[dict, float]] = {}
 ACTIVITY_TTL = 300  # 5 minutes
+ACTIVITY_CACHE_MAX = 8
 
 
-def _fetch_activity(mgmt_key: str = "") -> list:
-    global _ACTIVITY_CACHE
+def _activity_cache_key(mgmt_key: str) -> str:
+    import hashlib
+    return hashlib.sha256((mgmt_key or "").encode()).hexdigest()[:16]
+
+
+def _fetch_activity(mgmt_key: str = "") -> dict:
+    cache_key = _activity_cache_key(mgmt_key)
     now = time.time()
-    if _ACTIVITY_CACHE is not None:
-        cached, ts = _ACTIVITY_CACHE
-        if (now - ts) < ACTIVITY_TTL:
-            return cached
+    cached = _ACTIVITY_CACHE.get(cache_key)
+    if cached is not None and (now - cached[1]) < ACTIVITY_TTL:
+        return cached[0]
     key = mgmt_key or _get_openrouter_key()
     if not key:
-        return []
+        return {"models": [], "totals": {"today": 0, "week": 0, "month": 0, "all": 0}}
     try:
+        from datetime import datetime, timedelta
+
         import httpx
-        from datetime import datetime, timedelta, timezone
-        
+
         resp = httpx.get(
             "https://openrouter.ai/api/v1/activity",
             headers={"Authorization": f"Bearer {key}"},
@@ -618,23 +783,23 @@ def _fetch_activity(mgmt_key: str = "") -> list:
         )
         resp.raise_for_status()
         data = resp.json().get("data", [])
-        
+
         # Calculate date boundaries (UTC)
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         week_start = today - timedelta(days=today.weekday())  # Monday
         month_start = today.replace(day=1)
-        
+
         # Aggregate by model with time breakdowns
         by_model: dict[str, dict] = {}
         totals = {"today": 0, "week": 0, "month": 0, "all": 0}
-        
+
         for item in data:
             if not isinstance(item, dict):
                 continue
             model = item.get("model", "")
             if not model:
                 continue
-            
+
             # Parse date
             date_str = item.get("date", "")
             item_date = None
@@ -646,12 +811,12 @@ def _fetch_activity(mgmt_key: str = "") -> list:
             if item_date is None:
                 # Default to today if no date
                 item_date = today
-            
+
             usage = item.get("usage", 0) or 0
             requests = item.get("requests", 0) or 0
             prompt_tok = item.get("prompt_tokens", 0) or 0
             completion_tok = item.get("completion_tokens", 0) or 0
-            
+
             # Update totals
             if item_date == today:
                 totals["today"] += usage
@@ -660,7 +825,7 @@ def _fetch_activity(mgmt_key: str = "") -> list:
             if item_date >= month_start:
                 totals["month"] += usage
             totals["all"] += usage
-            
+
             if model not in by_model:
                 by_model[model] = {
                     "model": model,
@@ -670,11 +835,11 @@ def _fetch_activity(mgmt_key: str = "") -> list:
                     "tokens_today": 0, "tokens_week": 0, "tokens_month": 0, "tokens_all": 0,
                 }
             entry = by_model[model]
-            
+
             entry["cost_all"] += usage
             entry["requests_all"] += requests
             entry["tokens_all"] += prompt_tok + completion_tok
-            
+
             if item_date == today:
                 entry["cost_today"] += usage
                 entry["requests_today"] += requests
@@ -687,18 +852,34 @@ def _fetch_activity(mgmt_key: str = "") -> list:
                 entry["cost_month"] += usage
                 entry["requests_month"] += requests
                 entry["tokens_month"] += prompt_tok + completion_tok
-        
+
         models = sorted(by_model.values(), key=lambda x: x["cost_all"], reverse=True)
         result = {"models": models, "totals": totals}
     except Exception:
         result = {"models": [], "totals": {"today": 0, "week": 0, "month": 0, "all": 0}}
-    _ACTIVITY_CACHE = (result, now)
+    _ACTIVITY_CACHE[cache_key] = (result, now)
+    while len(_ACTIVITY_CACHE) > ACTIVITY_CACHE_MAX:
+        _ACTIVITY_CACHE.pop(next(iter(_ACTIVITY_CACHE)))
     return result
 
 
+@router.post("/activity")
+async def activity_post(request: Request):
+    """Per-model usage. The management key travels in the JSON body (F-2)."""
+    body = await _json_body(request)
+    return _fetch_activity((body.get("mgmt_key") or "").strip())
+
+
 @router.get("/activity")
-def get_activity(mgmt_key: str = ""):
-    return _fetch_activity(mgmt_key)
+def get_activity(request: Request):
+    """Per-model usage. Management key via X-OR-Management-Key header only —
+    never a query parameter (URLs leak into logs/history)."""
+    key = ""
+    try:
+        key = (request.headers.get("x-or-management-key") or "").strip()
+    except Exception:
+        key = ""
+    return _fetch_activity(key)
 
 
 # ── GET /changelog ─────────────────────────────────────────────────
@@ -706,16 +887,7 @@ def get_activity(mgmt_key: str = ""):
 def get_changelog():
     """Compare current catalog against saved snapshot, return changes and history."""
     try:
-        # Load previous data (snapshot + history)
-        data = {}
-        if CHANGELOG_PATH.exists():
-            with open(CHANGELOG_PATH) as f:
-                data = json.load(f)
-        
-        snapshot = data.get("snapshot", {})
-        history = data.get("history", [])
-        
-        # Get current catalog (just id, name, prices)
+        # Get current catalog (just id, name, prices) — no lock held over network
         catalog = _fetch_catalog()
         current = {}
         for m in catalog:
@@ -724,52 +896,64 @@ def get_changelog():
                 "prompt_price": m.get("prompt_price", 0),
                 "completion_price": m.get("completion_price", 0),
             }
-        
-        # Find changes
-        added = []
-        removed = []
-        price_changed = []
-        
-        for mid, mdata in current.items():
-            if mid not in snapshot:
-                added.append({"id": mid, "name": mdata["name"]})
-            else:
-                old = snapshot[mid]
-                if (old.get("prompt_price") != mdata["prompt_price"] or 
-                    old.get("completion_price") != mdata["completion_price"]):
-                    price_changed.append({
-                        "id": mid,
-                        "name": mdata["name"],
-                        "old_prompt": old.get("prompt_price", 0),
-                        "new_prompt": mdata["prompt_price"],
-                        "old_completion": old.get("completion_price", 0),
-                        "new_completion": mdata["completion_price"],
-                    })
-        
-        for mid, mdata in snapshot.items():
-            if mid not in current:
-                removed.append({"id": mid, "name": mdata.get("name", "")})
-        
-        # Save to history if there are changes
-        has_changes = added or removed or price_changed
-        if has_changes:
-            from datetime import datetime, timezone
-            history.append({
-                "date": datetime.now(timezone.utc).isoformat(),
-                "added": added,
-                "removed": removed,
-                "price_changed": price_changed,
-                "total_added": len(added),
-                "total_removed": len(removed),
-                "total_price_changed": len(price_changed),
-            })
-            # Keep last 50 entries
-            history = history[-50:]
-        
-        # Save new snapshot + history
-        with open(CHANGELOG_PATH, "w") as f:
-            json.dump({"snapshot": current, "history": history}, f)
-        
+
+        with _IO_LOCK, _file_lock(CHANGELOG_PATH):
+            # Load previous data (snapshot + history); recover from corruption
+            data = {}
+            if CHANGELOG_PATH.exists():
+                try:
+                    data = json.loads(CHANGELOG_PATH.read_text())
+                except (json.JSONDecodeError, OSError):
+                    data = {}
+            if not isinstance(data, dict):
+                data = {}
+
+            snapshot = data.get("snapshot", {}) or {}
+            history = data.get("history", []) or []
+
+            # Find changes
+            added = []
+            removed = []
+            price_changed = []
+
+            for mid, mdata in current.items():
+                if mid not in snapshot:
+                    added.append({"id": mid, "name": mdata["name"]})
+                else:
+                    old = snapshot[mid]
+                    if (old.get("prompt_price") != mdata["prompt_price"] or
+                        old.get("completion_price") != mdata["completion_price"]):
+                        price_changed.append({
+                            "id": mid,
+                            "name": mdata["name"],
+                            "old_prompt": old.get("prompt_price", 0),
+                            "new_prompt": mdata["prompt_price"],
+                            "old_completion": old.get("completion_price", 0),
+                            "new_completion": mdata["completion_price"],
+                        })
+
+            for mid, mdata in snapshot.items():
+                if mid not in current:
+                    removed.append({"id": mid, "name": mdata.get("name", "")})
+
+            # Save to history if there are changes
+            has_changes = added or removed or price_changed
+            if has_changes:
+                history.append({
+                    "date": datetime.now(UTC).isoformat(),
+                    "added": added,
+                    "removed": removed,
+                    "price_changed": price_changed,
+                    "total_added": len(added),
+                    "total_removed": len(removed),
+                    "total_price_changed": len(price_changed),
+                })
+                # Keep last 50 entries
+                history = history[-50:]
+
+            # Save new snapshot + history (atomic)
+            _write_json_atomic(CHANGELOG_PATH, {"snapshot": current, "history": history})
+
         return {
             "added": added,
             "removed": removed,
@@ -805,7 +989,7 @@ def test_model(body: dict):
             timeout=30,
         )
         data = resp.json()
-        if "choices" in data and data["choices"]:
+        if data.get("choices"):
             return {"response": data["choices"][0]["message"]["content"], "usage": data.get("usage", {})}
         elif "error" in data:
             return {"error": data["error"].get("message", str(data["error"]))}
@@ -816,59 +1000,63 @@ def test_model(body: dict):
 
 
 # ── GET /price-alerts ──────────────────────────────────────────────
-PRICE_ALERTS_PATH = Path.home() / ".hermes" / "openrouter-picker-price-alerts.json"
+PRICE_ALERTS_PATH = _snapshot_path("openrouter-picker-price-alerts.json")
 
 @router.get("/price-alerts")
 def get_price_alerts():
     """Check for price drops in curated models."""
     try:
-        # Load previous prices
-        prev_prices = {}
-        if PRICE_ALERTS_PATH.exists():
-            with open(PRICE_ALERTS_PATH) as f:
-                prev_prices = json.load(f)
-        
+        # Get current catalog — no lock held over network
+        catalog = _fetch_catalog()
+
         # Get curated models
         curated = _read_models()
-        curated_ids = set(m["id"] for m in curated)
-        
-        # Get current catalog
-        catalog = _fetch_catalog()
-        
+        curated_ids = {m["id"] for m in _get_models_list(curated)}
+
         # Check for price changes in curated models
         alerts = []
         current_prices = {}
-        
-        for m in catalog:
-            mid = m["id"]
-            current_prices[mid] = {
-                "prompt_price": m.get("prompt_price", 0),
-                "completion_price": m.get("completion_price", 0),
-            }
-            
-            if mid in curated_ids and mid in prev_prices:
-                old = prev_prices[mid]
-                new_prompt = m.get("prompt_price", 0)
-                new_comp = m.get("completion_price", 0)
-                old_prompt = old.get("prompt_price", 0)
-                old_comp = old.get("completion_price", 0)
-                
-                if new_prompt < old_prompt or new_comp < old_comp:
-                    alerts.append({
-                        "id": mid,
-                        "name": m.get("name", ""),
-                        "old_prompt": old_prompt,
-                        "new_prompt": new_prompt,
-                        "old_completion": old_comp,
-                        "new_completion": new_comp,
-                        "prompt_drop": old_prompt - new_prompt,
-                        "completion_drop": old_comp - new_comp,
-                    })
-        
-        # Save current prices
-        with open(PRICE_ALERTS_PATH, "w") as f:
-            json.dump(current_prices, f)
-        
+
+        with _IO_LOCK, _file_lock(PRICE_ALERTS_PATH):
+            # Load previous prices; recover from corruption
+            prev_prices = {}
+            if PRICE_ALERTS_PATH.exists():
+                try:
+                    prev_prices = json.loads(PRICE_ALERTS_PATH.read_text())
+                except (json.JSONDecodeError, OSError):
+                    prev_prices = {}
+            if not isinstance(prev_prices, dict):
+                prev_prices = {}
+
+            for m in catalog:
+                mid = m["id"]
+                current_prices[mid] = {
+                    "prompt_price": m.get("prompt_price", 0),
+                    "completion_price": m.get("completion_price", 0),
+                }
+
+                if mid in curated_ids and mid in prev_prices:
+                    old = prev_prices[mid]
+                    new_prompt = m.get("prompt_price", 0)
+                    new_comp = m.get("completion_price", 0)
+                    old_prompt = old.get("prompt_price", 0)
+                    old_comp = old.get("completion_price", 0)
+
+                    if new_prompt < old_prompt or new_comp < old_comp:
+                        alerts.append({
+                            "id": mid,
+                            "name": m.get("name", ""),
+                            "old_prompt": old_prompt,
+                            "new_prompt": new_prompt,
+                            "old_completion": old_comp,
+                            "new_completion": new_comp,
+                            "prompt_drop": old_prompt - new_prompt,
+                            "completion_drop": old_comp - new_comp,
+                        })
+
+            # Save current prices (atomic)
+            _write_json_atomic(PRICE_ALERTS_PATH, current_prices)
+
         return {
             "alerts": alerts,
             "total_alerts": len(alerts),

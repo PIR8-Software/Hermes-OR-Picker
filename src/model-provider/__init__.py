@@ -10,40 +10,69 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
 
 from providers import register_provider
 from providers.base import ProviderProfile
 
+# ── Curated-JSON path resolution ──────────────────────────────────
+# KEEP IN SYNC with src/backend-api/plugin_api.py — the provider reader
+# and the dashboard writer must agree on one file (contract tests:
+# tests/test_path_resolution.py).
 
-def _shared_models_path() -> Path:
-    """Install-wide list. The desktop plugin writes this, not a profile copy."""
-    return Path.home() / ".hermes" / "openrouter-supplemental-models.json"
 
-
-def _models_path() -> Path:
-    override = os.environ.get("OPENROUTER_PICKER_MODELS", "").strip()
-    if override:
-        return Path(override)
-    scoped = None
+def _hermes_home() -> Path:
+    """Active Hermes home (profile-scoped when Settings scopes HERMES_HOME)."""
     try:
         from hermes_constants import get_hermes_home
-        scoped = get_hermes_home() / "openrouter-supplemental-models.json"
+        return Path(get_hermes_home())
     except Exception:
-        scoped = None
-    # Settings scopes HERMES_HOME to profiles/<name>. That home has the key
-    # but not the curated file, and an empty catalog is reported as
-    # "paste OPENROUTER_API_KEY". Use the install-wide file instead.
+        pass
+    env = os.environ.get("HERMES_HOME", "").strip()
+    return Path(env) if env else Path.home() / ".hermes"
+
+
+def _hermes_root() -> Path:
+    """Install-wide root: ``<root>`` when the home is ``<root>/profiles/<name>``."""
+    try:
+        from hermes_constants import get_default_hermes_root
+        return Path(get_default_hermes_root())
+    except Exception:
+        pass
+    home = _hermes_home()
+    return home.parent.parent if home.parent.name == "profiles" else home
+
+
+def _shared_models_path() -> Path:
+    return _hermes_root() / "openrouter-supplemental-models.json"
+
+
+def _scoped_models_path() -> Path:
+    return _hermes_home() / "openrouter-supplemental-models.json"
+
+
+def _resolve_models_path() -> Path:
+    """One curated-JSON path for the reader AND the writer.
+
+    Order: explicit env overrides (both historical names) → install-wide
+    shared file → profile-scoped file if one exists → shared (creation
+    target). The shared file is the documented canonical store, so it wins
+    over a stray scoped copy instead of splitting reads from writes.
+    """
+    for var in ("OPENROUTER_MODELS_PATH", "OPENROUTER_PICKER_MODELS"):
+        val = os.environ.get(var, "").strip()
+        if val:
+            return Path(val)
     shared = _shared_models_path()
-    if scoped is not None and scoped.is_file():
-        return scoped
     if shared.is_file():
         return shared
-    return scoped if scoped is not None else shared
+    scoped = _scoped_models_path()
+    if scoped.is_file():
+        return scoped
+    return shared
 
 
 def _curated_ids() -> list[str]:
-    path = _models_path()
+    path = _resolve_models_path()
     if not path.exists():
         return []
     try:

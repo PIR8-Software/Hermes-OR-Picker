@@ -398,13 +398,13 @@ function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange, is
   const loadEndpoints = useCallback(async () => {
     if (endpoints !== null) return
     try {
-      const resp = await fetch(`https://openrouter.ai/api/v1/models/${m.id}/endpoints`)
-      const data = await resp.json()
-      if (data && data.data && data.data.endpoints) {
-        setEndpoints(data.data.endpoints)
+      // Backend proxy (F-10): ctx.rest only, never raw fetch
+      const data = await api(ctx, 'GET', `/endpoints/${m.id}`)
+      if (data && data.endpoints) {
+        setEndpoints(data.endpoints)
       }
     } catch {}
-  }, [m.id, endpoints])
+  }, [m.id, endpoints, ctx])
 
   const handleExpand = useCallback(() => {
     if (!expanded) loadEndpoints()
@@ -485,6 +485,9 @@ function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange, is
           jsx('button', {
             className: 'text-xs text-(--ui-text-quaternary) hover:text-(--ui-text-primary) px-0.5',
             onClick: (e) => { e.stopPropagation(); handleExpand() },
+            title: expanded ? 'Hide model details' : 'Show model details',
+            'aria-label': 'Expand model details',
+            'aria-expanded': expanded,
             children: expanded ? '▾' : '▸'
           }),
           onCompareToggle && jsx('button', {
@@ -492,6 +495,7 @@ function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange, is
             style: { backgroundColor: isComparing ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: isComparing ? '#60a5fa' : 'var(--ui-text-quaternary)' },
             onClick: (e) => { e.stopPropagation(); onCompareToggle(m.id) },
             title: isComparing ? 'Remove from compare' : 'Add to compare',
+            'aria-label': 'Add to compare',
             children: '⚖'
           })
         ]
@@ -543,8 +547,10 @@ function PickerPage({ ctx }) {
       setCatalog((data && data.models) || [])
       setProviders((data && data.providers) || [])
     } catch (e) { setError(String(e)) }
-    setLoading(false)
-    setLoadingCatalog(false)
+    finally {
+      setLoading(false)
+      setLoadingCatalog(false)
+    }
   }, [ctx, sort, modalityFilter, minContext])
 
   useEffect(() => { loadCurated() }, [loadCurated])
@@ -656,6 +662,7 @@ function PickerPage({ ctx }) {
                   URL.revokeObjectURL(url)
                 },
                 title: 'Export curated list as JSON',
+                'aria-label': 'Export list',
                 children: '📤'
               }),
               view === 'picker' && jsx('button', {
@@ -669,19 +676,34 @@ function PickerPage({ ctx }) {
                     try {
                       const text = await file.text()
                       const ids = JSON.parse(text)
-                      if (!Array.isArray(ids)) return
-                      for (const id of ids) {
-                        if (typeof id === 'string' && !curatedIds.has(id)) {
-                          await api(ctx, 'POST', '/models', { id, description: id })
+                      if (!Array.isArray(ids)) {
+                        setError('Import failed: expected a JSON array of model ids')
+                        return
+                      }
+                      // de-dupe, drop junk entries (F-3)
+                      const wanted = [...new Set(ids.filter(id => typeof id === 'string' && id.trim()))]
+                      const failed = []
+                      for (const id of wanted) {
+                        if (!curatedIds.has(id)) {
+                          const res = await api(ctx, 'POST', '/models', { id, description: id })
+                          // "already in list" is benign — partial re-import
+                          if (res && res.error && !/already in list/.test(res.error)) failed.push(id)
                         }
                       }
-                      setCuratedIds(new Set(ids))
+                      // re-fetch the authoritative list: merge, don't replace (F-3)
+                      await loadCurated()
                       refreshComposerPicker()
-                    } catch {}
+                      if (failed.length) {
+                        setError(`Import: ${failed.length} id(s) failed (${failed.slice(0, 3).join(', ')}${failed.length > 3 ? ', …' : ''})`)
+                      }
+                    } catch (err) {
+                      setError(`Import failed: ${(err && err.message) || err}`)
+                    }
                   }
                   input.click()
                 },
                 title: 'Import curated list from JSON',
+                'aria-label': 'Import list',
                 children: '📥'
               }),
               view === 'picker' && jsx('button', {
@@ -882,7 +904,8 @@ function AnalyticsPage({ ctx }) {
 
   const loadActivity = useCallback(async () => {
     try {
-      const data = await api(ctx, 'GET', '/activity' + (mgmtKey ? `?mgmt_key=${encodeURIComponent(mgmtKey)}` : ''))
+      // Management key travels in the POST body, never in the URL (F-2)
+      const data = await api(ctx, 'POST', '/activity', { mgmt_key: mgmtKey })
       if (data && data.models) {
         setActivity(data.models)
         setActivityTotals(data.totals || null)
@@ -894,8 +917,11 @@ function AnalyticsPage({ ctx }) {
   const loadPriceAlerts = useCallback(async () => {
     try {
       const data = await api(ctx, 'GET', '/price-alerts')
-      if (data && !data.error) setPriceAlerts(data)
-    } catch {}
+      // surface errors instead of silently dropping them (F-1)
+      setPriceAlerts(data || { error: 'No response' })
+    } catch (e) {
+      setPriceAlerts({ error: String(e) })
+    }
   }, [ctx])
 
   useEffect(() => { loadAnalytics(); loadCredits(); loadActivity(); loadPriceAlerts() }, [loadAnalytics, loadCredits, loadActivity, loadPriceAlerts])
@@ -1087,24 +1113,31 @@ function AnalyticsPage({ ctx }) {
             className: 'grid grid-cols-3 gap-4 text-center',
             children: [
               jsxs('div', { children: [
-                jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary)', children: 'From daily avg' }),
+                jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary)', children: 'Today × 30' }),
                 jsx('div', { className: 'font-mono text-lg font-bold text-blue-400', children: fmt(activityTotals.today > 0 ? activityTotals.today * 30 : 0) }),
               ]}),
               jsxs('div', { children: [
-                jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary)', children: 'From weekly avg' }),
+                jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary)', children: 'This week × 4.3' }),
                 jsx('div', { className: 'font-mono text-lg font-bold text-blue-400', children: fmt(activityTotals.week > 0 ? activityTotals.week * (30/7) : 0) }),
               ]}),
               jsxs('div', { children: [
-                jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary)', children: 'Current month pace' }),
+                jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary)', children: 'Month to date' }),
                 jsx('div', { className: 'font-mono text-lg font-bold text-blue-400', children: fmt(activityTotals.month) }),
               ]}),
             ]
           }),
-          jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary) mt-2 text-center', children: 'Projections based on current period averages' }),
+          jsx('div', { className: 'text-[10px] text-(--ui-text-quaternary) mt-2 text-center', children: 'Rough extrapolations from partial periods (today / this week / month so far) — not true averages' }),
         ]
       }),
       // Price drop alerts
-      priceAlerts && priceAlerts.total_alerts > 0 && jsxs('div', {
+      priceAlerts && priceAlerts.error && jsxs('div', {
+        className: 'rounded-lg border border-(--ui-stroke-secondary) p-4',
+        children: [
+          jsx('div', { className: 'text-(--ui-text-quaternary) text-xs mb-1', children: 'Price Drop Alerts' }),
+          jsx('div', { className: 'text-xs text-red-400', children: `⚠ ${priceAlerts.error}` }),
+        ]
+      }),
+      priceAlerts && !priceAlerts.error && priceAlerts.total_alerts > 0 && jsxs('div', {
         className: 'rounded-lg border border-green-500/30 p-4',
         children: [
           jsx('div', { className: 'text-green-400 text-xs mb-3', children: `💰 ${priceAlerts.total_alerts} Price Drop${priceAlerts.total_alerts > 1 ? 's' : ''} in Your Models!` }),

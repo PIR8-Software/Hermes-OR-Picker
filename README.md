@@ -32,7 +32,7 @@ Do **not** set `model_catalog.providers.openrouter.url` — that replaces the of
 - **Per-Key Usage** — today, this week, this month, all time (this key only)
 - **BYOK Usage** — same breakdowns
 - **Total Spend** — today, this week, this month, all time (from activity API)
-- **Monthly Forecast** — projections from daily avg, weekly avg, current month pace
+- **Monthly Forecast** — transparent extrapolations labeled for what they are: Today × 30, This week × 4.3, Month to date
 - **Price Drop Alerts** — notifies when curated models get cheaper
 - **Usage by Model** — per-model cost, requests, tokens with time breakdowns (requires management key)
 
@@ -123,13 +123,18 @@ Desktop UI  $HERMES_HOME/desktop-plugins/openrouter-picker/plugin.js
 Backend     $HERMES_HOME/plugins/openrouter-picker/dashboard/plugin_api.py
   GET  /catalog          full model catalog
   GET  /models           curated list
-  POST /models           add model
+  POST /models           add model ({id, description}); {id, remove: true} also removes
   POST /remove           remove model
+  PUT/DELETE /models/{id:path}  edit description / remove
+  POST /reorder          reorder curated list ({order: [ids]})
+  GET  /config           resolved models path + symlink info
   GET  /credits          account balance
   GET  /blog             RSS feed
   GET  /default-models   Hermes built-in IDs
   GET  /analytics        key info + usage
-  GET  /activity         per-model usage (management key)
+  GET  /activity         per-model usage (X-OR-Management-Key header)
+  POST /activity         per-model usage ({mgmt_key} in body — never in URL)
+  GET  /endpoints/{id:path}  provider health (backend proxy)
   GET  /changelog        model changes since last check
   GET  /price-alerts     price drops in curated models
   POST /test             send test prompt to model
@@ -160,8 +165,16 @@ hermes model picker → provider "OR Picker" (separate from OpenRouter)
 ## Tests
 
 ```bash
-uv run --with pytest pytest -q
+python3 -m pytest -q          # or: uv run --with-requirements requirements-dev.txt pytest -q
+ruff check .                  # lint gate (ruff.toml)
+node --check src/desktop-plugin/plugin.js
 ```
+
+Dev/test dependencies are pinned in `requirements-dev.txt` (pytest, ruff).
+Runtime dependencies (fastapi, httpx, Hermes internals) come from the Hermes
+host. A static type gate is deliberately not enforced: the plugin layout
+(`backend-api/`, `model-provider/`) is not importable-package-shaped and the
+host-internal imports resolve only inside a Hermes runtime.
 
 ## License
 

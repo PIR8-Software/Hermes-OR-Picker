@@ -1,0 +1,5 @@
+# Pinned dev/test dependencies for CI and local verification.
+# Runtime deps (provided by the Hermes host, not installed here):
+#   fastapi, httpx (dashboard plugin); hermes providers (model-provider)
+pytest==9.1.1
+ruff==0.16.9
