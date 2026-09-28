@@ -48,7 +48,7 @@ Do **not** set `model_catalog.providers.openrouter.url` — that **replaces** th
 | Desktop UI | `$HERMES_HOME/desktop-plugins/openrouter-picker/plugin.js` |
 | Desktop UI (Windows) | `%LOCALAPPDATA%\hermes\desktop-plugins\openrouter-picker\plugin.js` |
 | Dashboard API | `$HERMES_HOME/plugins/openrouter-picker/` |
-| Provider | `$HERMES_HOME/plugins/model-providers/or-picker/` |
+| Provider | `$HERMES_HOME/plugins/openrouter-picker/__init__.py` (composer name `or-picker`) |
 | Changelog snapshot | `$HERMES_HOME/openrouter-picker-changelog.json` |
 | Price alerts snapshot | `$HERMES_HOME/openrouter-picker-price-alerts.json` |
 

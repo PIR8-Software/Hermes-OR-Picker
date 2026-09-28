@@ -86,8 +86,7 @@ The repo ships an **empty** curated list. Your picks are stored in `$HERMES_HOME
 | Source | Destination |
 |--------|-------------|
 | `catalog/desktop/plugin.js` | `$HERMES_HOME/desktop-plugins/openrouter-picker/` |
-| `catalog/` | `$HERMES_HOME/plugins/openrouter-picker/` (`plugin.yaml` + `dashboard/`) |
-| `src/model-provider/` | `$HERMES_HOME/plugins/model-providers/or-picker/` |
+| `catalog/` | `$HERMES_HOME/plugins/openrouter-picker/` (sidebar API and the OR Picker provider) |
 | `openrouter-supplemental-models.json` | `$HERMES_HOME/openrouter-supplemental-models.json` (skipped if already present) |
 
 `$HERMES_HOME` defaults to `~/.hermes`. On Windows, `install.ps1` always writes `plugin.js` to `%LOCALAPPDATA%\hermes\desktop-plugins\openrouter-picker\` and installs the API/provider only if a Hermes home exists on that machine.
@@ -141,8 +140,8 @@ Backend     $HERMES_HOME/plugins/openrouter-picker/dashboard/plugin_api.py
         ↓ writes
 JSON        $HERMES_HOME/openrouter-supplemental-models.json
         ↓ read by
-Provider    $HERMES_HOME/plugins/model-providers/or-picker/
-            name: or-picker
+Provider    $HERMES_HOME/plugins/openrouter-picker/__init__.py
+            composer name: or-picker
             display: OR Picker
             base_url: https://openrouter.ai/api/v1
             auth: OPENROUTER_API_KEY
@@ -156,8 +155,7 @@ hermes model picker → provider "OR Picker" (separate from OpenRouter)
 |------|------|
 | `openrouter-supplemental-models.json` | Empty starter list (live picks live under `$HERMES_HOME`) |
 | `catalog/desktop/plugin.js` | Desktop UI |
-| `catalog/` | Dashboard FastAPI plugin (`plugin.yaml` + `dashboard/`) |
-| `src/model-provider/` | Hermes provider `or-picker` |
+| `catalog/` | One plugin: Desktop UI, dashboard API, and the OR Picker provider |
 | `install.sh` | Copy into `$HERMES_HOME` (Linux/macOS) |
 | `install.ps1` | Copy into `%LOCALAPPDATA%\hermes` (Windows) |
 | `AGENT_HANDOFF.md` | Agent pitfalls and deploy notes |
@@ -173,7 +171,7 @@ node --check catalog/desktop/plugin.js
 Dev/test dependencies are pinned in `requirements-dev.txt` (pytest, ruff).
 Runtime dependencies (fastapi, httpx, Hermes internals) come from the Hermes
 host. A static type gate is deliberately not enforced: the plugin layout
-(`catalog/dashboard/`, `src/model-provider/`) is not importable-package-shaped and the
+(`catalog/`) is not importable-package-shaped and the
 host-internal imports resolve only inside a Hermes runtime.
 
 ## License

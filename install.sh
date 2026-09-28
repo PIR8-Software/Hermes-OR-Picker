@@ -16,6 +16,8 @@ copy_file "$ROOT/catalog/desktop/plugin.js" \
 
 copy_file "$ROOT/catalog/plugin.yaml" \
   "$HERMES_HOME/plugins/openrouter-picker/plugin.yaml"
+copy_file "$ROOT/catalog/__init__.py" \
+  "$HERMES_HOME/plugins/openrouter-picker/__init__.py"
 
 mkdir -p "$HERMES_HOME/plugins/openrouter-picker/dashboard"
 copy_file "$ROOT/catalog/dashboard/manifest.json" \
@@ -24,10 +26,12 @@ copy_file "$ROOT/catalog/dashboard/plugin_api.py" \
   "$HERMES_HOME/plugins/openrouter-picker/dashboard/plugin_api.py"
 : > "$HERMES_HOME/plugins/openrouter-picker/dashboard/__init__.py"
 
-copy_file "$ROOT/src/model-provider/__init__.py" \
-  "$HERMES_HOME/plugins/model-providers/or-picker/__init__.py"
-copy_file "$ROOT/src/model-provider/plugin.yaml" \
-  "$HERMES_HOME/plugins/model-providers/or-picker/plugin.yaml"
+# Older installs copied the provider to a second plugin. One tree registers it.
+old_provider="$HERMES_HOME/plugins/model-providers/or-picker"
+if [ -d "$old_provider" ]; then
+  rm -rf "$old_provider"
+  echo "Removed split provider copy $old_provider"
+fi
 
 json_dest="$HERMES_HOME/openrouter-supplemental-models.json"
 if [ -L "$json_dest" ]; then
@@ -41,6 +45,5 @@ fi
 
 echo "Installed into $HERMES_HOME"
 echo "Enable: hermes plugins enable openrouter-picker --no-allow-tool-override"
-echo "Enable the provider: hermes plugins enable or-picker --no-allow-tool-override"
 echo "Then: Ctrl/Cmd+K → Reload desktop plugins"
-echo "If the desktop app is on another machine, copy catalog/desktop/plugin.js there (see README)."
+echo "Composer provider name stays OR Picker. If the desktop app is on another machine, copy catalog/desktop/plugin.js there (see README)."

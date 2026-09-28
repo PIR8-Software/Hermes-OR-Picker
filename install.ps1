@@ -26,6 +26,9 @@ if (Test-Path $HermesHome) {
         (Join-Path $Root "catalog\plugin.yaml") `
         (Join-Path $HermesHome "plugins\openrouter-picker\plugin.yaml")
     Copy-File `
+        (Join-Path $Root "catalog\__init__.py") `
+        (Join-Path $HermesHome "plugins\openrouter-picker\__init__.py")
+    Copy-File `
         (Join-Path $Root "catalog\dashboard\manifest.json") `
         (Join-Path $HermesHome "plugins\openrouter-picker\dashboard\manifest.json")
     Copy-File `
@@ -38,12 +41,12 @@ if (Test-Path $HermesHome) {
     if (-not (Test-Path $dashInit)) {
         New-Item -ItemType File -Path $dashInit -Force | Out-Null
     }
-    Copy-File `
-        (Join-Path $Root "src\model-provider\__init__.py") `
-        (Join-Path $HermesHome "plugins\model-providers\or-picker\__init__.py")
-    Copy-File `
-        (Join-Path $Root "src\model-provider\plugin.yaml") `
-        (Join-Path $HermesHome "plugins\model-providers\or-picker\plugin.yaml")
+
+    $oldProvider = Join-Path $HermesHome "plugins\model-providers\or-picker"
+    if (Test-Path $oldProvider) {
+        Remove-Item -Recurse -Force $oldProvider
+        Write-Host "Removed split provider copy $oldProvider"
+    }
 
     $jsonDest = Join-Path $HermesHome "openrouter-supplemental-models.json"
     $jsonItem = Get-Item -LiteralPath $jsonDest -ErrorAction SilentlyContinue
@@ -55,13 +58,12 @@ if (Test-Path $HermesHome) {
     } else {
         Write-Host "Left existing $jsonDest in place"
     }
-    Write-Host "Installed API/provider into $HermesHome"
+    Write-Host "Installed API and provider into $HermesHome"
 } else {
     Write-Host "No $HermesHome — installed desktop plugin only."
-    Write-Host "Run install.sh on the gateway host for the API + provider."
+    Write-Host "Run install.sh on the gateway host for the API and provider."
 }
 
 Write-Host "Desktop plugin: $DesktopRoot\desktop-plugins\openrouter-picker\plugin.js"
 Write-Host "Enable on the gateway: hermes plugins enable openrouter-picker --no-allow-tool-override"
-Write-Host "Enable the provider: hermes plugins enable or-picker --no-allow-tool-override"
 Write-Host "Then: Ctrl+K → Reload desktop plugins"

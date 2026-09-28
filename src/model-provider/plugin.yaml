@@ -1,8 +1,0 @@
-name: or-picker
-kind: model-provider
-version: "1.0.0"
-description: Curated OpenRouter models — separate from the default OpenRouter catalog.
-author: PIR8-Software
-license: MIT
-requires_env:
-  - OPENROUTER_API_KEY

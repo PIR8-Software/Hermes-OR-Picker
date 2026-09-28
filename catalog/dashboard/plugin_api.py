@@ -35,7 +35,7 @@ except Exception:
 router = APIRouter()
 
 # ── Curated-JSON path resolution ──────────────────────────────────────
-# KEEP IN SYNC with src/model-provider/__init__.py — the dashboard writer
+# KEEP IN SYNC with catalog/__init__.py — the dashboard writer
 # and the provider reader must agree on one file (contract tests:
 # tests/test_path_resolution.py).
 

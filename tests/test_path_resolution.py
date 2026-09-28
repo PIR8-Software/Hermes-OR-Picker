@@ -20,7 +20,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 API_DIR = ROOT / "catalog" / "dashboard"
-PROVIDER_FILE = ROOT / "src" / "model-provider" / "__init__.py"
+PROVIDER_FILE = ROOT / "catalog" / "__init__.py"
 if str(API_DIR) not in sys.path:
     sys.path.insert(0, str(API_DIR))
 

@@ -9,7 +9,7 @@ import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PROVIDER_FILE = ROOT / "src" / "model-provider" / "__init__.py"
+PROVIDER_FILE = ROOT / "catalog" / "__init__.py"
 
 
 def _load_provider(models_path: Path):
