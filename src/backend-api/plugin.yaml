@@ -1,6 +1,0 @@
-name: openrouter-picker
-manifest_version: 1
-version: 1.0.0
-description: Manage your curated OpenRouter model picker list from the desktop UI.
-author: Roy, Hermes Agent
-api: dashboard/plugin_api.py

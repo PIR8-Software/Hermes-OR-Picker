@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-JS = ROOT / "src" / "desktop-plugin" / "plugin.js"
+JS = ROOT / "catalog" / "desktop" / "plugin.js"
 
 
 def test_plugin_js_syntax():
@@ -23,7 +23,7 @@ def test_plugin_js_syntax():
 
 def test_manifests_parse():
     json.loads((ROOT / "openrouter-supplemental-models.json").read_text())
-    json.loads((ROOT / "src" / "backend-api" / "manifest.json").read_text())
+    json.loads((ROOT / "catalog" / "dashboard" / "manifest.json").read_text())
 
 
 def test_starter_list_is_empty():
@@ -36,7 +36,7 @@ def test_starter_ids_match_valid_id_regex():
     """Starter-list ids must survive _valid_id, parametrized over real id
     shapes (the old loop over the intentionally empty starter list could
     never fail)."""
-    sys.path.insert(0, str(ROOT / "src" / "backend-api"))
+    sys.path.insert(0, str(ROOT / "catalog" / "dashboard"))
     import plugin_api as api
 
     data = json.loads((ROOT / "openrouter-supplemental-models.json").read_text())

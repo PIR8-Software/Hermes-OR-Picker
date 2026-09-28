@@ -1,0 +1,6 @@
+name: openrouter-picker
+manifest_version: 1
+version: "1.0.0"
+description: Curated OpenRouter model list for Hermes Desktop, separate from the stock OpenRouter catalog.
+author: PIR8-Software
+license: MIT

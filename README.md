@@ -85,8 +85,8 @@ The repo ships an **empty** curated list. Your picks are stored in `$HERMES_HOME
 
 | Source | Destination |
 |--------|-------------|
-| `src/desktop-plugin/plugin.js` | `$HERMES_HOME/desktop-plugins/openrouter-picker/` |
-| `src/backend-api/` | `$HERMES_HOME/plugins/openrouter-picker/` (+ `dashboard/`) |
+| `catalog/desktop/plugin.js` | `$HERMES_HOME/desktop-plugins/openrouter-picker/` |
+| `catalog/` | `$HERMES_HOME/plugins/openrouter-picker/` (`plugin.yaml` + `dashboard/`) |
 | `src/model-provider/` | `$HERMES_HOME/plugins/model-providers/or-picker/` |
 | `openrouter-supplemental-models.json` | `$HERMES_HOME/openrouter-supplemental-models.json` (skipped if already present) |
 
@@ -155,8 +155,8 @@ hermes model picker → provider "OR Picker" (separate from OpenRouter)
 | Path | Role |
 |------|------|
 | `openrouter-supplemental-models.json` | Empty starter list (live picks live under `$HERMES_HOME`) |
-| `src/desktop-plugin/plugin.js` | Desktop UI |
-| `src/backend-api/` | Dashboard FastAPI plugin |
+| `catalog/desktop/plugin.js` | Desktop UI |
+| `catalog/` | Dashboard FastAPI plugin (`plugin.yaml` + `dashboard/`) |
 | `src/model-provider/` | Hermes provider `or-picker` |
 | `install.sh` | Copy into `$HERMES_HOME` (Linux/macOS) |
 | `install.ps1` | Copy into `%LOCALAPPDATA%\hermes` (Windows) |
@@ -167,13 +167,13 @@ hermes model picker → provider "OR Picker" (separate from OpenRouter)
 ```bash
 python3 -m pytest -q          # or: uv run --with-requirements requirements-dev.txt pytest -q
 ruff check .                  # lint gate (ruff.toml)
-node --check src/desktop-plugin/plugin.js
+node --check catalog/desktop/plugin.js
 ```
 
 Dev/test dependencies are pinned in `requirements-dev.txt` (pytest, ruff).
 Runtime dependencies (fastapi, httpx, Hermes internals) come from the Hermes
 host. A static type gate is deliberately not enforced: the plugin layout
-(`backend-api/`, `model-provider/`) is not importable-package-shaped and the
+(`catalog/dashboard/`, `src/model-provider/`) is not importable-package-shaped and the
 host-internal imports resolve only inside a Hermes runtime.
 
 ## License

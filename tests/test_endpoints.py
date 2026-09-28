@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-API_DIR = ROOT / "src" / "backend-api"
+API_DIR = ROOT / "catalog" / "dashboard"
 if str(API_DIR) not in sys.path:
     sys.path.insert(0, str(API_DIR))
 
@@ -100,7 +101,7 @@ class TestActivityTransport:
         return {
             "model": "vendor/model",
             "provider_name": "Vendor",
-            "date": "2026-09-26",
+            "date": datetime.now(UTC).date().isoformat(),
             "usage": 1.5,
             "requests": 2,
             "prompt_tokens": 10,

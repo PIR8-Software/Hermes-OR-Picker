@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-API_DIR = ROOT / "src" / "backend-api"
+API_DIR = ROOT / "catalog" / "dashboard"
 if str(API_DIR) not in sys.path:
     sys.path.insert(0, str(API_DIR))
 

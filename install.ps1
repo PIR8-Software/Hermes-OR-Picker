@@ -17,22 +17,19 @@ function Copy-File {
 
 # Desktop app loads plugins from %LOCALAPPDATA%\hermes on Windows.
 Copy-File `
-    (Join-Path $Root "src\desktop-plugin\plugin.js") `
+    (Join-Path $Root "catalog\desktop\plugin.js") `
     (Join-Path $DesktopRoot "desktop-plugins\openrouter-picker\plugin.js")
 
 # Gateway/API + provider: only if this machine also has a Hermes home.
 if (Test-Path $HermesHome) {
     Copy-File `
-        (Join-Path $Root "src\backend-api\plugin.yaml") `
+        (Join-Path $Root "catalog\plugin.yaml") `
         (Join-Path $HermesHome "plugins\openrouter-picker\plugin.yaml")
     Copy-File `
-        (Join-Path $Root "src\backend-api\__init__.py") `
-        (Join-Path $HermesHome "plugins\openrouter-picker\__init__.py")
-    Copy-File `
-        (Join-Path $Root "src\backend-api\manifest.json") `
+        (Join-Path $Root "catalog\dashboard\manifest.json") `
         (Join-Path $HermesHome "plugins\openrouter-picker\dashboard\manifest.json")
     Copy-File `
-        (Join-Path $Root "src\backend-api\plugin_api.py") `
+        (Join-Path $Root "catalog\dashboard\plugin_api.py") `
         (Join-Path $HermesHome "plugins\openrouter-picker\dashboard\plugin_api.py")
     $dashInit = Join-Path $HermesHome "plugins\openrouter-picker\dashboard\__init__.py"
     if (-not (Test-Path (Split-Path $dashInit))) {
@@ -66,4 +63,5 @@ if (Test-Path $HermesHome) {
 
 Write-Host "Desktop plugin: $DesktopRoot\desktop-plugins\openrouter-picker\plugin.js"
 Write-Host "Enable on the gateway: hermes plugins enable openrouter-picker --no-allow-tool-override"
+Write-Host "Enable the provider: hermes plugins enable or-picker --no-allow-tool-override"
 Write-Host "Then: Ctrl+K → Reload desktop plugins"

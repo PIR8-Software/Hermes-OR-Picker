@@ -15,7 +15,7 @@ from providers import register_provider
 from providers.base import ProviderProfile
 
 # ── Curated-JSON path resolution ──────────────────────────────────
-# KEEP IN SYNC with src/backend-api/plugin_api.py — the provider reader
+# KEEP IN SYNC with catalog/dashboard/plugin_api.py — the provider reader
 # and the dashboard writer must agree on one file (contract tests:
 # tests/test_path_resolution.py).
 
