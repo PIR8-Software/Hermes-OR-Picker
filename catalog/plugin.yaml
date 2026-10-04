@@ -1,7 +1,7 @@
 name: openrouter-picker
 kind: model-provider
 manifest_version: 1
-version: "1.1.0"
+version: "1.1.1"
 description: Check OpenRouter models in Desktop and use that list as the OR Picker composer provider. One install.
 author: PIR8-Software
 license: MIT
