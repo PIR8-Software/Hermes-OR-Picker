@@ -112,6 +112,26 @@ class TestProfileWiring:
         _run_install(hermes_home)
         assert (own / "__init__.py").read_text() == "# profile-local copy\n"
 
+    def test_running_process_rescan_signal_bumped(self, hermes_home: Path):
+        # A running gateway's per-home discovery re-scans a home's plugins ONLY when the
+        # home's plugins/model-providers dir mtime changes (providers._plugin_dir_stamps).
+        # A share-point-only repair resolves a profile link WITHOUT touching that dir, so
+        # a live backend never re-scans and OR Picker stays unregistered ("Set up OR
+        # Picker"). install.sh must bump that dir's mtime so the next lookup re-scans.
+        (hermes_home / "profiles" / "betty").mkdir(parents=True)
+        _run_install(hermes_home)  # creates the tree + a resolving share-point link
+        mp_dir = hermes_home / "profiles" / "betty" / "plugins" / "model-providers"
+        assert _discovery_ok(mp_dir / "or-picker")
+        # Simulate "the running gateway last scanned this home long ago".
+        old = 1_600_000_000
+        os.utime(mp_dir, (old, old))
+        before = mp_dir.stat().st_mtime_ns
+        _run_install(hermes_home)  # the repair
+        after = mp_dir.stat().st_mtime_ns
+        assert after > before, (
+            "install must bump the profile model-providers dir mtime (the re-scan signal "
+            "a running gateway needs to register OR Picker without a restart)")
+
 
 class TestSafety:
     def test_existing_curated_list_preserved(self, hermes_home: Path):
@@ -135,3 +155,12 @@ class TestWindowsInstallerParity:
         text = INSTALL_PS1.read_text()
         assert "model-providers" in text and "or-picker" in text
         assert "profiles" in text, "install.ps1 must wire profile homes like install.sh"
+
+    def test_install_ps1_bumps_rescan_signal(self):
+        # install.ps1 must bump the profile model-providers dir mtime in its skip path,
+        # matching install.sh: a running gateway re-scans on a dir-mtime change only, so
+        # a share-point-only repair would otherwise leave OR Picker unregistered.
+        text = INSTALL_PS1.read_text()
+        assert "LastWriteTime" in text, (
+            "install.ps1 must bump the model-providers dir mtime (LastWriteTime) so a "
+            "running gateway re-scans and registers OR Picker without a restart")

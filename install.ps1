@@ -24,7 +24,17 @@ function Ensure-ProviderLink {
     # Make $LinkPath discoverable as a model-provider dir (symlink to $TargetPath,
     # falling back to a real copy of the provider files when symlinks are not permitted).
     param([string]$LinkPath, [string]$TargetPath)
-    if (Test-Path (Join-Path $LinkPath "__init__.py")) { return }
+    if (Test-Path (Join-Path $LinkPath "__init__.py")) {
+        # Link already resolves (real copy or share-point link). Still bump the parent
+        # model-providers dir mtime: a running gateway's per-home discovery re-scans on a
+        # dir-mtime change ONLY. A share-point-only repair resolves these links without
+        # touching this dir's mtime, so a live backend never re-scans and OR Picker stays
+        # unregistered ("Set up OR Picker") until a restart. Touching the dir makes the
+        # next lookup re-scan and register it. The link itself is left alone.
+        $parent = Split-Path -Parent $LinkPath
+        if (Test-Path $parent) { (Get-Item -LiteralPath $parent).LastWriteTime = Get-Date }
+        return
+    }
     if (Test-Path -LiteralPath $LinkPath) {
         $item = Get-Item -LiteralPath $LinkPath -Force
         if ($item.LinkType) {

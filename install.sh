@@ -47,6 +47,13 @@ for prof_home in "$HERMES_HOME"/profiles/*/; do
   [ -d "$prof_home" ] || continue
   link="${prof_home}plugins/model-providers/or-picker"
   if [ -f "$link/__init__.py" ]; then
+    # Link already resolves (real copy or share-point link). Still bump the parent
+    # model-providers dir mtime: a running gateway's per-home discovery re-scans on a
+    # dir-mtime change ONLY. A share-point-only repair resolves these links without
+    # touching this dir's mtime, so a live backend never re-scans and OR Picker stays
+    # unregistered ("Set up OR Picker") until a restart. Touching the dir makes the next
+    # lookup re-scan and register it — no restart needed. The link itself is left alone.
+    touch "${prof_home}plugins/model-providers" 2>/dev/null || true
     continue   # working provider dir (real copy or resolving link): leave it
   fi
   rm -rf "$link"   # dangling link or stale remains (rm never follows a bare symlink arg)
