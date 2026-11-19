@@ -26,12 +26,33 @@ copy_file "$ROOT/catalog/dashboard/plugin_api.py" \
   "$HERMES_HOME/plugins/openrouter-picker/dashboard/plugin_api.py"
 : > "$HERMES_HOME/plugins/openrouter-picker/dashboard/__init__.py"
 
-# Older installs copied the provider to a second plugin. One tree registers it.
-old_provider="$HERMES_HOME/plugins/model-providers/or-picker"
-if [ -d "$old_provider" ]; then
-  rm -rf "$old_provider"
-  echo "Removed split provider copy $old_provider"
+# Provider share point. Hermes discovers model-provider plugins PER HOME
+# ($HERMES_HOME/plugins/model-providers/<name>/), so one flat install registers OR Picker
+# for the default profile only. Secondary profile homes' `plugins/model-providers/or-picker`
+# links target this path; older installs kept a split provider copy here and the one-plugin
+# restructure removed it, leaving those links dangling — non-default profiles then lost the
+# provider and their model picker asked for the API key. Point the legacy path at the one tree.
+share_point="$HERMES_HOME/plugins/model-providers/or-picker"
+one_tree="$HERMES_HOME/plugins/openrouter-picker"
+if [ -L "$share_point" ]; then
+  rm -f "$share_point"
+elif [ -e "$share_point" ]; then
+  rm -rf "$share_point"   # stale split copy, superseded by the one tree
 fi
+mkdir -p "$HERMES_HOME/plugins/model-providers"
+ln -s "$one_tree" "$share_point"
+
+# Wire every profile home to the share point (missing or dangling -> create/repair).
+for prof_home in "$HERMES_HOME"/profiles/*/; do
+  [ -d "$prof_home" ] || continue
+  link="${prof_home}plugins/model-providers/or-picker"
+  if [ -f "$link/__init__.py" ]; then
+    continue   # working provider dir (real copy or resolving link): leave it
+  fi
+  rm -rf "$link"   # dangling link or stale remains (rm never follows a bare symlink arg)
+  mkdir -p "${prof_home}plugins/model-providers"
+  ln -s "$share_point" "$link"
+done
 
 json_dest="$HERMES_HOME/openrouter-supplemental-models.json"
 if [ -L "$json_dest" ]; then

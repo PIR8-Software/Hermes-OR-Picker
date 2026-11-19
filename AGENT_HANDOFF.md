@@ -49,6 +49,8 @@ Do **not** set `model_catalog.providers.openrouter.url` — that **replaces** th
 | Desktop UI (Windows) | `%LOCALAPPDATA%\hermes\desktop-plugins\openrouter-picker\plugin.js` |
 | Dashboard API | `$HERMES_HOME/plugins/openrouter-picker/` |
 | Provider | `$HERMES_HOME/plugins/openrouter-picker/__init__.py` (composer name `or-picker`) |
+| Provider share point | `$HERMES_HOME/plugins/model-providers/or-picker` → `plugins/openrouter-picker` (what profile homes link at) |
+| Provider (profile home) | `$HERMES_HOME/profiles/<name>/plugins/model-providers/or-picker` (wired by install.sh/install.ps1) |
 | Changelog snapshot | `$HERMES_HOME/openrouter-picker-changelog.json` |
 | Price alerts snapshot | `$HERMES_HOME/openrouter-picker-price-alerts.json` |
 
@@ -126,6 +128,8 @@ Desktop plugin:
 
 ## Pitfalls
 
+- **Provider discovery is per-home:** Hermes scans `$HERMES_HOME/plugins/model-providers/` and flat `plugins/*/` (kind: model-provider) per profile home. One install registers `or-picker` for the DEFAULT profile only; `install.sh`/`install.ps1` wire every `profiles/<name>/` home through the `plugins/model-providers/or-picker` share point. If that share link is missing or dangling, non-default profiles lose OR Picker and their default-model picker asks for the API key even with `OPENROUTER_API_KEY` in that profile's `.env` (the picker still lists OR Picker as an unconfigured skeleton, so it looks broken rather than absent). Regression tests: `tests/test_install_wiring.py`.
+
 - **Two enables:** `plugins.enabled` is the Python dashboard plugin. Desktop enable is `defaultEnabled` + Electron localStorage. Gateway list ≠ sidebar.
 - **`ctx.rest` body must be an object**, not `JSON.stringify` (double-encode 422).
 - **`~` IDs:** OpenRouter latest aliases. `_valid_id` allows optional leading `~`.
@@ -146,7 +150,7 @@ Desktop plugin:
 
 ## Deploy checklist after code change
 
-1. Copy `src/` into the live `$HERMES_HOME/` trees (desktop-plugin, dashboard plugin, model-provider), or re-run `./install.sh`.
+1. Copy `catalog/` into the live `$HERMES_HOME/` trees (desktop-plugin, dashboard plugin, model-provider), or re-run `./install.sh` (it also repairs/creates every `profiles/<name>/plugins/model-providers/or-picker` share link).
 2. If desktop is on another machine, copy `plugin.js` to `%LOCALAPPDATA%\hermes\desktop-plugins\openrouter-picker\`.
 3. Dashboard remount only if `plugin_api.py` or `or-picker/__init__.py` changed.
 4. Desktop JS: file-watch or Ctrl/Cmd+K → Reload desktop plugins.

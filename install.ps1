@@ -20,6 +20,32 @@ Copy-File `
     (Join-Path $Root "catalog\desktop\plugin.js") `
     (Join-Path $DesktopRoot "desktop-plugins\openrouter-picker\plugin.js")
 
+function Ensure-ProviderLink {
+    # Make $LinkPath discoverable as a model-provider dir (symlink to $TargetPath,
+    # falling back to a real copy of the provider files when symlinks are not permitted).
+    param([string]$LinkPath, [string]$TargetPath)
+    if (Test-Path (Join-Path $LinkPath "__init__.py")) { return }
+    if (Test-Path -LiteralPath $LinkPath) {
+        $item = Get-Item -LiteralPath $LinkPath -Force
+        if ($item.LinkType) {
+            Remove-Item -Force -LiteralPath $LinkPath
+        } else {
+            Remove-Item -Recurse -Force -LiteralPath $LinkPath
+        }
+    }
+    $parent = Split-Path -Parent $LinkPath
+    if (-not (Test-Path $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    try {
+        New-Item -ItemType SymbolicLink -Path $LinkPath -Target $TargetPath -ErrorAction Stop | Out-Null
+    } catch {
+        New-Item -ItemType Directory -Path $LinkPath -Force | Out-Null
+        Copy-Item -Force (Join-Path $TargetPath "__init__.py") $LinkPath
+        Copy-Item -Force (Join-Path $TargetPath "plugin.yaml") $LinkPath
+    }
+}
+
 # Gateway/API + provider: only if this machine also has a Hermes home.
 if (Test-Path $HermesHome) {
     Copy-File `
@@ -42,10 +68,16 @@ if (Test-Path $HermesHome) {
         New-Item -ItemType File -Path $dashInit -Force | Out-Null
     }
 
-    $oldProvider = Join-Path $HermesHome "plugins\model-providers\or-picker"
-    if (Test-Path $oldProvider) {
-        Remove-Item -Recurse -Force $oldProvider
-        Write-Host "Removed split provider copy $oldProvider"
+    # Provider share point + per-profile wiring (see install.sh): provider discovery is
+    # per-home, and secondary profiles' plugins\model-providers\or-picker links target here.
+    $oneTree = Join-Path $HermesHome "plugins\openrouter-picker"
+    $sharePoint = Join-Path $HermesHome "plugins\model-providers\or-picker"
+    Ensure-ProviderLink -LinkPath $sharePoint -TargetPath $oneTree
+    $profilesDir = Join-Path $HermesHome "profiles"
+    foreach ($profHome in (Get-ChildItem -Directory -Path $profilesDir -ErrorAction SilentlyContinue)) {
+        Ensure-ProviderLink `
+            -LinkPath (Join-Path $profHome.FullName "plugins\model-providers\or-picker") `
+            -TargetPath $oneTree
     }
 
     $jsonDest = Join-Path $HermesHome "openrouter-supplemental-models.json"
