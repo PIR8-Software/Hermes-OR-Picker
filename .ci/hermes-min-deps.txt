@@ -1,0 +1,9 @@
+# Minimal third-party dependencies to import the process-lifetime driver's exact
+# hermes-agent import surface: providers + hermes_constants + hermes_cli.auth
+# (tests/_lifetime_driver.py). Discovered empirically against a clean venv: everything
+# else in that import surface is stdlib or in-repo hermes code.
+#
+# Version pins are the exact pins documented in hermes-agent pyproject.toml at the
+# pinned discovery commit 2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19 (tag v0.23.0).
+# Keep the pin and this comment in sync with tests/test_ci_hygiene.py.
+ruamel.yaml==0.18.16  ; python_version >= '3.14'

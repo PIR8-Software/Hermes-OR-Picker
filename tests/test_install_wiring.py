@@ -104,13 +104,48 @@ class TestProfileWiring:
         assert _discovery_ok(link)
         assert "kind: model-provider" in (link / "plugin.yaml").read_text()
 
-    def test_existing_real_copy_left_alone(self, hermes_home: Path):
-        # A profile that already carries its own working provider dir keeps it.
+    def test_existing_real_copy_matches_source_unchanged(self, hermes_home: Path):
+        # A REAL copy (not a symlink - the old test silently ended up writing through
+        # a freshly linked dir into the one tree) whose bytes match the source stays
+        # unchanged. Ownership/migration semantics live in test_install_ownership.py.
+        _run_install(hermes_home)  # create the one tree first
         own = hermes_home / "profiles" / "statler" / "plugins" / "model-providers" / "or-picker"
-        own.mkdir(parents=True)
-        (own / "__init__.py").write_text("# profile-local copy\n")
+        own.parent.mkdir(parents=True, exist_ok=True)
+        if own.is_symlink():
+            own.unlink()
+        own.mkdir(parents=True, exist_ok=True)
+        source_init = hermes_home / "plugins" / "openrouter-picker" / "__init__.py"
+        source_plug = hermes_home / "plugins" / "openrouter-picker" / "plugin.yaml"
+        (own / "__init__.py").write_bytes(source_init.read_bytes())
+        (own / "plugin.yaml").write_bytes(source_plug.read_bytes())
+        assert not own.is_symlink(), "precondition: real copy fixture, not a symlink"
         _run_install(hermes_home)
-        assert (own / "__init__.py").read_text() == "# profile-local copy\n"
+        assert not own.is_symlink(), "a real copy must stay a real copy (no symlink conversion)"
+        assert (own / "__init__.py").read_bytes() == source_init.read_bytes()
+        assert (own / "plugin.yaml").read_bytes() == source_plug.read_bytes()
+
+    def test_custom_real_copy_preserved_not_refreshed(self, hermes_home: Path):
+        # Arbitrary local bytes are a DELIBERATE OVERRIDE: the installer must preserve
+        # them and warn (the old test asserted arbitrary-copy overwrite, which violates
+        # the explicit preserve-overrides contract).
+        _run_install(hermes_home)  # create the one tree first
+        own = hermes_home / "profiles" / "statler" / "plugins" / "model-providers" / "or-picker"
+        own.parent.mkdir(parents=True, exist_ok=True)
+        if own.is_symlink():
+            own.unlink()
+        own.mkdir(parents=True, exist_ok=True)
+        (own / "__init__.py").write_text("# profile-local copy v1\n")
+        (own / "plugin.yaml").write_text("# local manifest\n")
+        (own / "keep.txt").write_text("must survive")
+        assert not own.is_symlink(), "precondition: real copy fixture, not a symlink"
+        run = _run_install(hermes_home)
+        assert not own.is_symlink()
+        assert (own / "__init__.py").read_text() == "# profile-local copy v1\n"
+        assert (own / "plugin.yaml").read_text() == "# local manifest\n"
+        assert (own / "keep.txt").read_text() == "must survive"
+        out = run.stdout + run.stderr
+        assert "WARNING" in out and "preserv" in out.lower(), (
+            "preserving a custom copy must be visible in installer output")
 
     def test_running_process_rescan_signal_bumped(self, hermes_home: Path):
         # A running gateway's per-home discovery re-scans a home's plugins ONLY when the

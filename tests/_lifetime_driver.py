@@ -10,7 +10,7 @@ on its model-providers/or-picker symlink. Stamps are backdated so they look SETT
 long-running gateway): the ONLY re-scan trigger is the profile dir mtime changing.
 
 repair_mode:
-  "sharepoint_only"  -- recreate ONLY the share point (t_f1107e0e's repair). The profile
+  "sharepoint_only"  -- recreate ONLY the share point (the earlier repair). The profile
                         home's model-providers dir mtime is left unchanged -> BUG: the
                         running process never re-scans, provider stays unregistered.
   "install_sh"       -- run the repo's install.sh (the fix). It must bump the profile

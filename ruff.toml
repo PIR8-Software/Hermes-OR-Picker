@@ -5,7 +5,10 @@
 # (PL*/S*/DTZ/BLE) are out of scope for a plugin this size.
 line-length = 110
 target-version = "py311"
-exclude = [".venv-dev"]
+# tests/fixtures holds BYTE-EXACT historical installer payloads (versionA migration
+# fixtures; their sha256 pairs are matched against install/known-legacy-pairs.txt),
+# so they must never be reformatted or linted.
+exclude = [".venv-dev", "tests/fixtures"]
 
 [lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "N"]

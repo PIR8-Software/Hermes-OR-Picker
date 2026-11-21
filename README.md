@@ -1,5 +1,7 @@
 # Hermes OR Picker
 
+**Version 1.1.2.** See [CHANGELOG.md](CHANGELOG.md). The catalog banner image under `docs/images/` is inherited from 1.1.1 and was not regenerated for this release.
+
 A Hermes Agent plugin: browse the full OpenRouter catalog, check the models you want, and use them as a **separate** composer provider named **OR Picker**.
 
 Stock **OpenRouter** stays the official auto catalog. OR Picker is only your checked list.
@@ -163,10 +165,20 @@ hermes model picker → provider "OR Picker" (separate from OpenRouter)
 ## Tests
 
 ```bash
+# Use a disposable HOME and HERMES_HOME. Do not point them at a live Hermes home.
 python3 -m pytest -q          # or: uv run --with-requirements requirements-dev.txt pytest -q
 ruff check .                  # lint gate (ruff.toml)
 node --check catalog/desktop/plugin.js
 ```
+
+Two test tiers (CI runs both as required jobs):
+
+- **hermetic** — `pytest -q -m "not integration"`: no Hermes runtime, no network.
+- **integration** (required, finding F-09) — `pytest -q tests/test_process_lifetime.py`
+  against a disposable hermes-agent checkout + venv pinned at the commit named in
+  `.ci/hermes-min-deps.txt` (provisioning in `.github/workflows/test.yml`). With
+  `OR_PICKER_REQUIRE_HERMES_AGENT=1` a missing runtime **fails** the tier instead of
+  silently skipping the process-lifetime tests.
 
 Dev/test dependencies are pinned in `requirements-dev.txt` (pytest, ruff).
 Runtime dependencies (fastapi, httpx, Hermes internals) come from the Hermes

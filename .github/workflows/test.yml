@@ -5,16 +5,68 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: every job only reads the checked-out repo.
+permissions:
+  contents: read
+
+# One run per ref; a newer push cancels the superseded run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  hermetic:
+    name: hermetic (no hermes runtime required)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 == moving tag v4; verified via git ls-remote 2026-11-20
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 == moving tag v4; verified via git ls-remote 2026-11-20
         with:
           node-version: "24"
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2 == moving tag v5 (annotated v5@e58605a peels to this commit); verified via git ls-remote 2026-11-20
       - name: lint
         run: uv run --with-requirements requirements-dev.txt ruff check .
-      - name: pytest
-        run: uv run --with-requirements requirements-dev.txt pytest -q
+      - name: hermetic pytest (process-lifetime integration tests run only in the required `integration` job)
+        run: uv run --with-requirements requirements-dev.txt pytest -q -m "not integration"
+      - name: js behavior suites (import/export + UI race contracts, non-optional)
+        run: node --test tests/js/*.test.mjs
+
+  integration:
+    name: required integration (process-lifetime vs pinned real hermes discovery)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Required tier: tests/test_process_lifetime.py must RUN here. If the pinned
+      # hermes runtime is missing or broken the job FAILS (never skips) — the silent
+      # CI skip of these tests is finding F-09.
+      OR_PICKER_REQUIRE_HERMES_AGENT: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 == moving tag v4; verified via git ls-remote 2026-11-20
+      - name: check out hermes-agent at the pinned authoritative discovery commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0 == moving tag v4; verified via git ls-remote 2026-11-20
+        with:
+          repository: NousResearch/hermes-agent
+          # tag v0.23.0 (peeled) == the live hermes-agent discovery layer this repo is
+          # validated against; pinned so CI exercises authoritative actual discovery.
+          ref: 2bd378ed1b8d6bf2192cb26e0a55ff3091e6bd19
+          path: .ci/hermes-agent
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0 == moving tag v4; verified via git ls-remote 2026-11-20
+        with:
+          node-version: "24"
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2 == moving tag v5 (annotated v5@e58605a peels to this commit); verified via git ls-remote 2026-11-20
+        with:
+          python-version: "3.14"
+      - name: disposable hermes venv + minimal pinned deps (the driver import surface)
+        run: |
+          uv venv .ci/hermes-venv --python 3.14
+          uv pip install --python .ci/hermes-venv/bin/python -r .ci/hermes-min-deps.txt
+      - name: process-lifetime integration tests (2 tests, non-optional)
+        run: uv run --with-requirements requirements-dev.txt pytest -q tests/test_process_lifetime.py
+        env:
+          HERMES_AGENT_PYTHON: ${{ github.workspace }}/.ci/hermes-venv/bin/python
+          HERMES_AGENT_SRC: ${{ github.workspace }}/.ci/hermes-agent
+          HOME: ${{ runner.temp }}/or-picker-test-home
+          HERMES_HOME: ${{ runner.temp }}/or-picker-test-home/.hermes
+      - name: js behavior suites (import/export + UI race contracts, non-optional)
+        run: node --test tests/js/*.test.mjs

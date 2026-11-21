@@ -343,3 +343,79 @@ class TestPriceAlerts:
         result = api.get_price_alerts()
         assert "error" not in result, result
         assert result["alerts"] == []
+
+
+class TestDescriptionLosslessContract:
+    """F10 lossless description round-trip through the ACTUAL plugin_api route
+    handlers (F10). Explicit strings — including empty and
+    whitespace — are preserved byte-for-byte; omitted/null keep the legacy id
+    fallback; explicit non-string types are rejected without writes."""
+
+    def _post(self, body):
+        import asyncio
+        return asyncio.run(api.add_model(FakeRequest(body=body)))
+
+    def test_explicit_whitespace_description_preserved_verbatim(self, offline):
+        assert self._post({"id": "white/space", "description": "  intentional\n"})["ok"] is True
+        models = api.get_models()["models"]
+        assert models == [{"id": "white/space", "description": "  intentional\n"}]
+
+    def test_explicit_empty_description_preserved(self, offline):
+        assert self._post({"id": "empty/desc", "description": ""})["ok"] is True
+        assert api.get_models()["models"] == [{"id": "empty/desc", "description": ""}]
+
+    def test_explicit_plain_description_preserved(self, offline):
+        assert self._post({"id": "plain/desc", "description": "  padded plain text "})["ok"] is True
+        assert api.get_models()["models"] == [
+            {"id": "plain/desc", "description": "  padded plain text "},
+        ]
+
+    def test_omitted_description_falls_back_to_id(self, offline):
+        assert self._post({"id": "legacy/id"})["ok"] is True
+        assert api.get_models()["models"] == [{"id": "legacy/id", "description": "legacy/id"}]
+
+    def test_explicit_null_description_falls_back_to_id(self, offline):
+        assert self._post({"id": "null/desc", "description": None})["ok"] is True
+        assert api.get_models()["models"] == [{"id": "null/desc", "description": "null/desc"}]
+
+    def test_nonstring_description_rejected_without_write(self, offline):
+        for bad in (5, 1.5, True, ["x"], {"intent": "not a string"}):
+            result = self._post({"id": "bad/desc", "description": bad})
+            assert "error" in result and "ok" not in result, (bad, result)
+        assert api.get_models()["models"] == []
+        assert api._get_models_list(api._read_models()) == []
+
+    def test_nonstring_description_via_internal_add_rejected(self, offline):
+        for bad in (5, True, ["x"], {"a": 1}):
+            result = api._add_id("bad/inner", bad)
+            assert "error" in result and "ok" not in result, (bad, result)
+        assert api.get_models()["models"] == []
+
+    def test_update_rejects_nonstring_description_without_write(self, offline):
+        assert self._post({"id": "keep/me", "description": "original"})["ok"] is True
+        for bad in (5, ["x"], {"a": 1}, None):
+            result = api.update_model("keep/me", {"description": bad})
+            assert "error" in result and "ok" not in result, (bad, result)
+        assert api.get_models()["models"] == [
+            {"id": "keep/me", "description": "original"},
+        ]
+
+    def test_export_import_round_trip_is_byte_for_byte(self, offline):
+        src = [
+            {"id": "white/space", "description": "  intentional\n"},
+            {"id": "empty/desc", "description": ""},
+            {"id": "plain/desc", "description": "plain text"},
+        ]
+        for e in src:
+            assert self._post(e)["ok"] is True
+        exported = api.get_models()["models"]  # what the UI exports verbatim
+        assert exported == src
+        # import into a fresh store: same POST path, same preservation
+        monkey_target = api.MODELS_PATH
+        try:
+            api.MODELS_PATH = offline / "fresh-import.json"
+            for e in exported:
+                assert self._post(e)["ok"] is True
+            assert api.get_models()["models"] == src
+        finally:
+            api.MODELS_PATH = monkey_target

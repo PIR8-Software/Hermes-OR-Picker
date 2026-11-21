@@ -13,10 +13,82 @@ import {
   queryClient,
 } from '@hermes/plugin-sdk'
 import { jsx, jsxs } from 'react/jsx-runtime'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 
 const ID = 'openrouter-picker'
 const PAGE = '/openrouter-picker'
+
+// ── import payload parsing (F-10) ────────────────────────────────────────────
+// Accepted shapes: legacy bare-id array, [{id, description}] object array, or
+// the documented providers.openrouter.models manifest. Malformed entries are
+// rejected with per-entry reasons (never silently dropped); ids are validated
+// the same way the backend validates them; dedupe is deterministic (first
+// occurrence wins). Description semantics: a provided non-empty description is
+// kept verbatim, otherwise the id is used (backend contract: desc or mid).
+const VALID_ID = /^~?[A-Za-z0-9_.-]+\/[A-Za-z0-9_.:/-]+$/
+
+function isValidModelId(id) {
+  return typeof id === 'string' && !id.includes('..') && !id.includes('//') && VALID_ID.test(id)
+}
+
+function parseImportPayload(text) {
+  let raw
+  try { raw = JSON.parse(text) } catch (e) {
+    return { error: `not valid JSON: ${(e && e.message) || e}`, entries: [], rejected: [] }
+  }
+  let list = null
+  if (Array.isArray(raw)) {
+    list = raw
+  } else if (raw && typeof raw === 'object' && raw.providers && raw.providers.openrouter &&
+             Array.isArray(raw.providers.openrouter.models)) {
+    list = raw.providers.openrouter.models
+  }
+  if (!list) {
+    return {
+      error: 'expected a JSON array of model ids, an array of {id, description} objects, or a providers.openrouter.models manifest',
+      entries: [], rejected: [],
+    }
+  }
+  const entries = []
+  const rejected = []
+  const seen = new Set()
+  list.forEach((item, i) => {
+    let id = null
+    let description = null
+    if (typeof item === 'string') {
+      id = item.trim()
+      description = id
+    } else if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const rawId = item.id
+      if (typeof rawId !== 'string' || !rawId.trim()) {
+        rejected.push(`entry ${i + 1}: missing id (${JSON.stringify(item)})`)
+        return
+      }
+      id = rawId.trim()
+      // description contract (F-10 lossless, review 2810): explicit strings
+      // are preserved byte-for-byte (including empty and whitespace); an
+      // omitted or null description keeps the legacy id fallback; any other
+      // explicit type is malformed and rejected, never silently replaced.
+      if (item.description !== undefined && item.description !== null &&
+          typeof item.description !== 'string') {
+        rejected.push(`entry ${i + 1}: ${id}: description must be a string (${JSON.stringify(item.description)})`)
+        return
+      }
+      description = typeof item.description === 'string' ? item.description : id
+    } else {
+      rejected.push(`entry ${i + 1}: not a model id or {id, description} object (${JSON.stringify(item)})`)
+      return
+    }
+    if (!isValidModelId(id)) {
+      rejected.push(`entry ${i + 1}: invalid model id ${JSON.stringify(id)}`)
+      return
+    }
+    if (seen.has(id)) return // deterministic dedupe: first occurrence wins
+    seen.add(id)
+    entries.push({ id, description })
+  })
+  return { entries, rejected, error: null }
+}
 
 async function api(ctx, method, path, body) {
   const opts = { method, timeoutMs: 30000 }
@@ -388,7 +460,7 @@ function ModelDetails({ m, endpoints, onFilterChange, ctx }) {
   })
 }
 
-function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange, isComparing, onCompareToggle, ctx }) {
+function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange, isComparing, onCompareToggle, ctx, isPending }) {
   const [expanded, setExpanded] = useState(false)
   const [endpoints, setEndpoints] = useState(null)
   const m = model
@@ -425,6 +497,7 @@ function CatalogRow({ model, isSelected, onToggle, isDefault, onFilterChange, is
         children: [
           jsx(Checkbox, {
             checked: isSelected,
+            disabled: !!isPending,
             className: 'shrink-0',
             onClick: (e) => e.stopPropagation(),
             onCheckedChange: () => onToggle(m.id, m.name),
@@ -510,11 +583,13 @@ function PickerPage({ ctx }) {
   const [compareIds, setCompareIds] = useState(new Set())
   const [showCompare, setShowCompare] = useState(false)
   const [catalog, setCatalog] = useState([])
-  const [curatedIds, setCuratedIds] = useState(new Set())
+  const [curated, setCurated] = useState([]) // [{id, description}] in stored order (F-10)
+  const curatedIds = useMemo(() => new Set(curated.map(m => m.id)), [curated])
   const [providers, setProviders] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [loadingCatalog, setLoadingCatalog] = useState(false)
+  const [pendingIds, setPendingIds] = useState(new Set()) // in-flight toggle ids (F-11)
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('newest')
   const [freeOnly, setFreeOnly] = useState(false)
@@ -527,14 +602,47 @@ function PickerPage({ ctx }) {
   const [credits, setCredits] = useState(null)
   const [defaultModelIds, setDefaultModelIds] = useState(new Set())
 
+  const aliveRef = useRef(true)
+  const curatedRef = useRef([])          // latest authoritative curated entries (F-11)
+  const pendingRef = useRef(new Set())   // in-flight toggle ids, mirrors pendingIds
+  const fetchSeqRef = useRef({ curated: 0, catalog: 0 }) // out-of-order write guard (F-11)
+  const mutEpochRef = useRef(0)         // acknowledged-mutation fence for reads (review 2810)
+  useEffect(() => () => { aliveRef.current = false }, [])
+
   const loadCurated = useCallback(async () => {
+    const seq = ++fetchSeqRef.current.curated
+    const epoch = mutEpochRef.current
     try {
       const data = await api(ctx, 'GET', '/models')
-      setCuratedIds(new Set((data.models || []).map(m => m.id)))
-    } catch (e) { setError(String(e)) }
+      // a stale (earlier-issued) response must never clobber a newer one (F-11)
+      if (!aliveRef.current || seq !== fetchSeqRef.current.curated) return null
+      // read/mutation fence (review 2810): a response issued before an
+      // acknowledged write may not reflect it — never overwrite mutations
+      if (epoch !== mutEpochRef.current) return null
+      // application-error envelope (review 2813): surface the real failure
+      // and keep current/acknowledged entries — never normalize an error
+      // response into an empty list
+      if (data && data.error) {
+        const msg = String(data.error)
+        setError(msg)
+        return msg
+      }
+      const list = (data && data.models) || []
+      curatedRef.current = list
+      setCurated(list)
+      return null
+    } catch (e) {
+      if (aliveRef.current && seq === fetchSeqRef.current.curated) {
+        const msg = String(e)
+        setError(msg)
+        return msg
+      }
+      return null
+    }
   }, [ctx])
 
   const loadCatalog = useCallback(async () => {
+    const seq = ++fetchSeqRef.current.catalog
     setLoadingCatalog(true)
     try {
       const params = new URLSearchParams()
@@ -543,13 +651,18 @@ function PickerPage({ ctx }) {
       if (minContext > 0) params.set('min_context_length', String(minContext))
       const qs = params.toString()
       const data = await api(ctx, 'GET', `/catalog${qs ? '?' + qs : ''}`)
+      if (!aliveRef.current || seq !== fetchSeqRef.current.catalog) return
       if (data && data.error) { setError(data.error); return }
       setCatalog((data && data.models) || [])
       setProviders((data && data.providers) || [])
-    } catch (e) { setError(String(e)) }
+    } catch (e) {
+      if (aliveRef.current && seq === fetchSeqRef.current.catalog) setError(String(e))
+    }
     finally {
-      setLoading(false)
-      setLoadingCatalog(false)
+      if (aliveRef.current && seq === fetchSeqRef.current.catalog) {
+        setLoading(false)
+        setLoadingCatalog(false)
+      }
     }
   }, [ctx, sort, modalityFilter, minContext])
 
@@ -591,21 +704,39 @@ function PickerPage({ ctx }) {
   useEffect(() => { loadDefaultModels() }, [loadDefaultModels])
 
 
+  const applyCurated = useCallback((next) => {
+    // acknowledged mutation: fence older in-flight GET responses (review 2810)
+    mutEpochRef.current += 1
+    curatedRef.current = next
+    if (aliveRef.current) setCurated(next)
+  }, [])
+
   const toggle = useCallback(async (id, name) => {
+    // per-id pending: a rapid duplicate tap while this id's request is in
+    // flight is dropped, not queued behind a stale snapshot (F-11)
+    if (pendingRef.current.has(id)) return
+    pendingRef.current.add(id)
+    if (aliveRef.current) setPendingIds(new Set(pendingRef.current))
+    // decide add-vs-remove from CURRENT authoritative state, never from a
+    // render-time closure snapshot (F-11)
+    const removing = curatedRef.current.some(m => m.id === id)
     try {
-      if (curatedIds.has(id)) {
-        const data = await api(ctx, 'POST', '/remove', { id })
-        if (data && data.error) { setError(data.error); return }
-        setCuratedIds(prev => { const next = new Set(prev); next.delete(id); return next })
-        refreshComposerPicker()
-      } else {
-        const data = await api(ctx, 'POST', '/models', { id, description: name || id })
-        if (data && data.error) { setError(data.error); return }
-        setCuratedIds(prev => new Set(prev).add(id))
-        refreshComposerPicker()
-      }
-    } catch (e) { setError(String(e)) }
-  }, [ctx, curatedIds])
+      const data = removing
+        ? await api(ctx, 'POST', '/remove', { id })
+        : await api(ctx, 'POST', '/models', { id, description: name || id })
+      if (!aliveRef.current) return
+      if (data && data.error) { setError(data.error); return }
+      applyCurated(removing
+        ? curatedRef.current.filter(m => m.id !== id)
+        : [...curatedRef.current, { id, description: name || id }])
+      refreshComposerPicker()
+    } catch (e) {
+      if (aliveRef.current) setError(String(e))
+    } finally {
+      pendingRef.current.delete(id)
+      if (aliveRef.current) setPendingIds(new Set(pendingRef.current))
+    }
+  }, [ctx, applyCurated])
 
   const filtered = useMemo(() => {
     let list = catalog
@@ -654,7 +785,11 @@ function PickerPage({ ctx }) {
               view === 'picker' && jsx('button', {
                 className: 'text-[11px] px-1.5 py-0.5 rounded text-(--ui-text-quaternary) hover:text-(--ui-text-primary) hover:bg-(--chrome-action-hover)',
                 onClick: () => {
-                  const data = JSON.stringify(Array.from(curatedIds), null, 2)
+                  // lossless export (F-10): {id, description} in stored order
+                  const data = JSON.stringify(curatedRef.current.map(m => ({
+                    id: m.id,
+                    description: m.description == null ? m.id : m.description,
+                  })), null, 2)
                   const blob = new Blob([data], { type: 'application/json' })
                   const url = URL.createObjectURL(blob)
                   const a = document.createElement('a')
@@ -675,29 +810,87 @@ function PickerPage({ ctx }) {
                     if (!file) return
                     try {
                       const text = await file.text()
-                      const ids = JSON.parse(text)
-                      if (!Array.isArray(ids)) {
-                        setError('Import failed: expected a JSON array of model ids')
+                      // the page may have closed while the dialog/file read
+                      // was in flight — never start writes after cleanup
+                      if (!aliveRef.current) return
+                      const parsed = parseImportPayload(text)
+                      if (parsed.error) {
+                        setError(`Import failed: ${parsed.error}`)
                         return
                       }
-                      // de-dupe, drop junk entries (F-3)
-                      const wanted = [...new Set(ids.filter(id => typeof id === 'string' && id.trim()))]
+                      // no file-chosen snapshot (review 2813): every entry's
+                      // decision consults the CURRENT authoritative selection
+                      // and shared pending ownership immediately before its
+                      // reservation — ids picked by a completed intervening
+                      // toggle are never re-sent (their stored description is
+                      // never overwritten), ids removed meanwhile are eligible
+                      // again
+                      const have = new Set()
                       const failed = []
-                      for (const id of wanted) {
-                        if (!curatedIds.has(id)) {
-                          const res = await api(ctx, 'POST', '/models', { id, description: id })
+                      const skipped = []
+                      for (const entry of parsed.entries) {
+                        // stop future entries once the page is gone (review 2810)
+                        if (!aliveRef.current) break
+                        if (have.has(entry.id)) continue
+                        // a per-id owner (toggle or another import) holds this
+                        // id; importing it now would race the pending request
+                        if (pendingRef.current.has(entry.id)) {
+                          skipped.push(`${entry.id}: request already in flight`)
+                          have.add(entry.id)
+                          continue
+                        }
+                        // additive merge: an id already picked is never
+                        // re-sent, so its stored description cannot be
+                        // silently overwritten (F-10)
+                        if (curatedRef.current.some(m => m.id === entry.id)) {
+                          have.add(entry.id)
+                          continue
+                        }
+                        // reserve the id for the duration of this write so no
+                        // concurrent toggle/import can duplicate it
+                        pendingRef.current.add(entry.id)
+                        if (aliveRef.current) setPendingIds(new Set(pendingRef.current))
+                        try {
+                          const res = await api(ctx, 'POST', '/models', { id: entry.id, description: entry.description })
                           // "already in list" is benign — partial re-import
-                          if (res && res.error && !/already in list/.test(res.error)) failed.push(id)
+                          if (res && res.error) {
+                            if (!/already in list/.test(res.error)) failed.push(`${entry.id}: ${res.error}`)
+                            have.add(entry.id)
+                            continue
+                          }
+                          have.add(entry.id)
+                          applyCurated([...curatedRef.current, { id: entry.id, description: entry.description }])
+                        } catch (err) {
+                          // transport rejection: the write may or may not have
+                          // landed — report per-entry and reconcile below
+                          failed.push(`${entry.id}: ${(err && err.message) || err}`)
+                        } finally {
+                          pendingRef.current.delete(entry.id)
+                          if (aliveRef.current) setPendingIds(new Set(pendingRef.current))
                         }
                       }
-                      // re-fetch the authoritative list: merge, don't replace (F-3)
-                      await loadCurated()
+                      // always reconcile successful/possibly successful writes
+                      // against the authoritative store (review 2810)
+                      if (!aliveRef.current) return
+                      const reconErr = await loadCurated()
+                      if (!aliveRef.current) return
                       refreshComposerPicker()
-                      if (failed.length) {
-                        setError(`Import: ${failed.length} id(s) failed (${failed.slice(0, 3).join(', ')}${failed.length > 3 ? ', …' : ''})`)
+                      const problems = []
+                      // keep the reconciliation failure visible even when
+                      // entries also failed — never discard it (review 2813)
+                      if (reconErr) problems.push(`Import reconciliation failed: ${reconErr}`)
+                      if (parsed.rejected.length) {
+                        problems.push(`Import rejected ${parsed.rejected.length} malformed entr${parsed.rejected.length === 1 ? 'y' : 'ies'}: ${parsed.rejected.join('; ')}`)
                       }
+                      if (failed.length) {
+                        problems.push(`Import: ${failed.length} id(s) failed (${failed.join('; ')})`)
+                      }
+                      if (skipped.length) {
+                        problems.push(`Import: ${skipped.length} id(s) skipped — request already in flight (${skipped.join('; ')})`)
+                      }
+                      if (problems.length) setError(problems.join(' '))
                     } catch (err) {
-                      setError(`Import failed: ${(err && err.message) || err}`)
+                      if (aliveRef.current) setError(`Import failed: ${(err && err.message) || err}`)
                     }
                   }
                   input.click()
@@ -850,6 +1043,7 @@ function PickerPage({ ctx }) {
                 isSelected: curatedIds.has(m.id),
                 isDefault: defaultModelIds.has(m.id),
                 isComparing: compareIds.has(m.id),
+                isPending: pendingIds.has(m.id),
                 onToggle: toggle,
                 onCompareToggle: (id) => {
                   setCompareIds(prev => {
@@ -1252,14 +1446,31 @@ function AnalyticsPage({ ctx }) {
 function ChangelogView({ ctx, onClose }) {
   const [changelog, setChangelog] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [showHistory, setShowHistory] = useState(false)
+  const aliveRef = useRef(true)
+  useEffect(() => () => { aliveRef.current = false }, [])
 
   const loadChangelog = useCallback(async () => {
+    setLoading(true)
+    setError('')
     try {
       const data = await api(ctx, 'GET', '/changelog')
-      setChangelog(data)
-    } catch {}
-    setLoading(false)
+      if (!aliveRef.current) return
+      // an error payload is a failure, not "no changes" (F-11)
+      if (data && data.error) {
+        setError(String(data.error))
+        setChangelog(null)
+      } else {
+        setChangelog(data)
+      }
+    } catch (e) {
+      if (!aliveRef.current) return
+      // surface the actual failed request — never swallow into "No changes" (F-11)
+      setError(String((e && e.message) || e))
+      setChangelog(null)
+    }
+    if (aliveRef.current) setLoading(false)
   }, [ctx])
 
   useEffect(() => { loadChangelog() }, [loadChangelog])
@@ -1279,6 +1490,11 @@ function ChangelogView({ ctx, onClose }) {
           jsxs('div', {
             className: 'flex gap-2',
             children: [
+              error && jsx('button', {
+                className: 'text-xs px-2 py-1 rounded text-(--ui-text-tertiary) hover:text-(--ui-text-primary)',
+                onClick: () => loadChangelog(),
+                children: '↻ Retry'
+              }),
               history.length > 0 && jsx('button', {
                 className: 'text-xs px-2 py-1 rounded text-(--ui-text-tertiary) hover:text-(--ui-text-primary)',
                 onClick: () => setShowHistory(!showHistory),
@@ -1293,11 +1509,15 @@ function ChangelogView({ ctx, onClose }) {
           })
         ]
       }),
+      error && jsx('div', {
+        className: 'text-xs text-red-400 bg-red-400/10 rounded-lg border border-red-400/30 p-3',
+        children: `⚠ Failed to load changelog: ${error}`
+      }),
       // Current changes
       !showHistory && jsxs('div', {
         className: 'space-y-4',
         children: [
-          !hasChanges && jsx('div', {
+          !error && !hasChanges && jsx('div', {
             className: 'text-(--ui-text-quaternary) text-center py-8',
             children: 'No changes since last check. This will track new models, removed models, and price changes.'
           }),
